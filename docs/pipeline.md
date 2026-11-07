@@ -4,18 +4,19 @@
 
 ```mermaid
 flowchart LR
-  B[branch + commit] --> PR[pull request]
-  PR --> Q[Kvalitet: lint · format · test]
-  PR --> BU[Bygg]
-  PR --> I[Integration: Postgres + MongoDB]
-  Q --> S{alla gröna?}
-  BU --> S
-  I --> S
-  S -->|ja| IM[Image]
-  IM --> M[merge]
-  S -->|nej| F[fixa, pusha igen]
+    B[branch + commit] --> PR[pull request]
+    PR --> Q[Kvalitet]
+    PR --> BU[Bygg]
+    PR --> I[Integration]
+    Q --> S{alla gröna?}
+    BU --> S
+    I --> S
+    S -->|ja| IM[Image]
+    IM --> M[merge]
+    M --> D[Deploy Azure staging]
+    D --> H[Health check + GraphQL smoke test]
+    S -->|nej| F[fixa, pusha igen]
 ```
-
 ## Vad stegen fångar
 
 - **Lint:** hittar kodfel och problem med kodregler, till exempel oanvända variabler.
@@ -126,5 +127,64 @@ Image-jobbet körs efter att Kvalitet, Bygg och Integration har lyckats. Det byg
 
 Images publiceras som:
 
-- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-api`
-- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-client`
+- `ghcr.io/1sa1asdev/hasta-la-vue-lta-api`
+- `ghcr.io/1sa1asdev/hasta-la-vue-lta-client`
+
+## Deploy till Azure staging
+
+Deploy-jobbet är det sista jobbet i GitHub Actions-pipelinen.
+
+### När körs jobbet?
+
+- **Pull request:** Deploy hoppas över. Ingen Azure-deployment görs.
+- **Push till `main`:** Deploy körs efter att Kvalitet, Bygg, Integration och Image har lyckats.
+
+Jobbet använder GitHub Environment `azure-staging`.
+
+### Beroenden
+
+Deploy väntar på att följande jobb ska lyckas:
+
+- Kvalitet
+- Bygg
+- Integration
+- Image
+
+### Autentisering och säkerhet
+
+GitHub Actions autentiserar mot Azure med OpenID Connect (OIDC).
+
+Azure-identitetsinformationen konfigureras som variabler i GitHub Environment `azure-staging`:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+Workflow-jobbet använder `id-token: write` för att hämta en OIDC-token.
+
+Inga Azure-credentials eller hemliga värden ska lagras direkt i workflow-filen eller som GitHub Secrets.
+
+### Deployment
+
+Deploy-jobbet ska använda API- och klientimages som byggts och publicerats av Image-jobbet för samma commit.
+
+Images identifieras med commitens SHA-tag, så att den version som testats också är den version som distribueras.
+
+Efter deployment ska jobbet:
+
+1. Vänta tills `/api/health` svarar och bekräftar rätt commit-SHA.
+2. Göra ett GraphQL-smoketest via klienten.
+3. Kontrollera att GraphQL returnerar databasdata.
+
+### Deploymentresultat
+
+Följande information dokumenteras när deploymenten har verifierats:
+
+- GitHub Actions-körning för en pull request där Deploy hoppas över.
+- GitHub Actions-körning efter merge till `main`.
+- Deploy-jobbets totala körtid.
+- Bekräftad commit-SHA.
+- Azure Container App revision name.
+- Resultat från health check och GraphQL-smoketest.
+
+**Status:** Deploymentresultat inväntar verifiering av Azure staging-deploymenten.
