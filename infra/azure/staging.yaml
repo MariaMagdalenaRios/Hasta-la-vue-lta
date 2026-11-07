@@ -20,6 +20,9 @@ properties:
         value: mongodb://utpost:__DB_PASSWORD__@localhost:27017/utpost?authSource=admin
       - name: db-password
         value: __DB_PASSWORD__
+      - name: image-function-key
+        value: __IMAGE_FUNCTION_KEY__
+
   template:
     containers:
       - name: client
@@ -30,6 +33,7 @@ properties:
         env:
           - name: API_UPSTREAM
             value: http://localhost:4000   # api är en sidecar – samma localhost
+
       - name: api
         image: __IMAGE_API__
         resources:
@@ -48,6 +52,11 @@ properties:
             secretRef: mongo-url
           - name: JWT_SECRET
             secretRef: jwt-secret
+          - name: IMAGE_FUNCTION_URL
+            value: __IMAGE_FUNCTION_URL__
+          - name: IMAGE_FUNCTION_KEY
+            secretRef: image-function-key
+
       - name: postgres
         image: postgres:16
         resources:
@@ -60,6 +69,7 @@ properties:
             value: utpost
           - name: POSTGRES_PASSWORD
             secretRef: db-password
+
       - name: mongo
         image: mongo:8.2
         resources:
@@ -70,6 +80,7 @@ properties:
             value: utpost
           - name: MONGO_INITDB_ROOT_PASSWORD
             secretRef: db-password
+
     scale:
       minReplicas: 0           # skalar till noll mellan passen – kostar inget, men första anropet väcker allt (~1 min)
       maxReplicas: 1           # en replica: databaserna lever i den
