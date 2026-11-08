@@ -2,7 +2,9 @@
 
 ## 1. Hosting platform
 
-The project uses Azure Container Apps as its intended staging hosting platform.
+The project uses Azure Container Apps as its staging platform. The staging
+environment is deployed in Sweden Central and runs the client, API,
+PostgreSQL and MongoDB as containers in one Container App.
 
 The application is deployed using Docker container images for the client and API.
 
@@ -38,7 +40,7 @@ This allows the application to scale to zero when idle.
 
 When a request arrives after the application has scaled to zero, Azure must start the containers again. This causes a cold start.
 
-The deployment script estimates that the first wake-up can take approximately one minute. This is an estimate and should be measured after deployment.
+The deployment script estimates that the first wake-up can take approximately one minute. In the observed test on 2026-11-08, the cold-start request took 33.95 seconds.
 
 The maximum of one replica keeps the application and database containers together.
 
@@ -53,7 +55,9 @@ Local development uses named Docker Compose volumes:
 
 These provide persistent local database storage.
 
-The Azure staging configuration does not define equivalent persistent volumes. Therefore, staging database persistence must be verified, and staging data should not be treated as durable until this is resolved.
+The Azure staging configuration does not define equivalent persistent volumes. No persistent Azure volume is configured for the staging database containers. Staging database data is therefore ephemeral and may be lost when containers are recreated.
+
+The PostgreSQL and MongoDB containers start as part of the Container App revision. The API connects to these database services during startup. `SEED_ON_START=1` enables seed data to be loaded when the application starts.
 
 ## 5. Secrets and authentication
 
@@ -69,45 +73,103 @@ OIDC allows GitHub Actions to authenticate to Azure without storing Azure creden
 
 ## 6. Azure region
 
-The deployment script defaults to:
+The deployed staging environment uses:
 
-- Region: Sweden Central
-- Resource group: `utpost-maria-rios-rg`
-- Container Apps environment: `utpost-env`
+- **Azure Container App:** `hasta-la-vue-lta-staging`
+- **Resource group:** `utpost-maria-rios-rg`
+- **Container Apps environment:** `utpost-env`
+- **Region:** Sweden Central
+- **Subscription:** Pay-As-You-Go
+- **Minimum replicas:** 0
+- **Maximum replicas:** 1
+- **Public URL:** https://hasta-la-vue-lta-staging.wittycliff-f2acc780.swedencentral.azurecontainerapps.io
 
-These are script defaults. The actual deployed resource configuration must be checked in Azure Portal.
 
 ## 7. Resource usage and costs
 
-The CPU and memory values in this document are configured container allocations, not actual measured usage.
+The configured CPU and memory allocations listed above are resource
+limits, not measurements of actual usage.
 
-Actual resource consumption and Azure costs must be checked in Azure Cost Management and Azure Monitor after deployment.
+Azure Cost Analysis was checked on 2026-11-08 for November 2026:
 
-## 8. Current deployment status
+- **Actual cost:** No cost reported during this period.
+- **Forecast:** Unavailable.
+- **Budget:** None configured.
+- **Scope:** Pay-As-You-Go subscription.
+- **Granularity:** Daily.
 
-Azure staging is deployed and has been successfully verified in Sweden Central.
+No cost was reported by Azure for the selected period at the time of checking. This does not necessarily mean that the deployment has no cost, since billing data may be delayed.
 
-**Verified deployment details (2026-11-07):**
+### Cold-start measurement
 
-- **Staging URL:** https://hasta-la-vue-lta-staging.wittycliff-f2acc780.swedencentral.azurecontainerapps.io
-- **Branch:** `main`
-- **Expected commit SHA:** `171b3496f79deff8464f8f6944c5e20fdfb40953`
-- **Deployed API SHA:** `171b3496f79deff8464f8f6944c5e20fdfb40953`
+Tested on 2026-11-08 against `/api/health`, when the
+Container App had scaled to zero:
+
+- **Initial request (cold start):** 33.95 seconds.
+- **Immediate second request (warm):** 0.076 seconds.
+- **HTTP status:** 200 for both requests.
+- **Replica state:** 0 active replicas before the first request;
+  configured minimum 0 and maximum 1.
+
+This is one observed test, not an average. The first request took considerably longer because the application had to start from zero replicas.
+
+## 8. Deployment verification
+
+Verified on 2026-11-08:
+
+- **Git branch:** `main`
+- **Deployed commit:** `b844d49c00ebb419fd7cedba612685a4f3b4aa01`
+- **Container App revision:** `hasta-la-vue-lta-staging--0000015`
 - **API version:** `1.4.2`
-- **API health:** `ok`
-- **PostgreSQL health:** `ok`
-- **MongoDB health:** `ok`
+- **Health endpoint:** HTTP 200
+- **PostgreSQL:** healthy
+- **MongoDB:** healthy
+- **GraphQL smoke test:** `{ guides { slug } }` returned 40 guides.
 
-The `/api/health` endpoint returned a successful response (`HTTP 200`). The deployed API SHA matches the current `main` commit.
+The deployed API health response confirmed that the running version and commit SHA matched the latest commit on `main`.
 
-The staging homepage and tour list have also been verified to load successfully.
+## 9. Staging vs production
 
-This confirms that the Sweden Central staging deployment is running and that its API is connected successfully to both databases.
+The current Azure deployment is a staging environment, not a production setup.
 
-**Remaining verification:**
+Staging is configured for low-cost development and verification:
+- One Container App contains the client, API, PostgreSQL and MongoDB containers.
+- The app can scale to zero replicas when idle.
+- The maximum replica count is one.
+- `SEED_ON_START=1` allows seed data to be loaded when the application starts.
+- No persistent Azure volume is configured for the database containers.
+  Database data must therefore be treated as ephemeral and may be lost when containers are recreated.
 
-- Measure and document actual cold-start time.
-- Verify database persistence across container restarts.
-- Monitor actual Azure resource consumption and costs.
+For production, this architecture should be reviewed before launch. Production
+should use durable managed database services or explicitly configured persistent
+storage, backups, monitoring, appropriate availability and scaling settings,
+and production-specific secrets. Production should not rely on seed data being
+loaded at every application startup.
 
-The deployment verification above applies to the Sweden Central staging URL, not other Azure staging environments.
+No production environment is currently deployed by this project.
+
+## 10. Alternatives considered
+
+| Option | Region | Advantages | Why not selected |
+|---|---|---|---|
+| Azure Container Apps | Sweden Central | Existing Azure environment; supports multiple containers, internal communication and scale-to-zero. | Selected because the team already had a working Azure setup and GitHub OIDC deployment. |
+| AWS ECS with Fargate | Stockholm (`eu-north-1`) | Runs containers as tasks and charges for requested compute resources. | Would require setting up AWS accounts, permissions, networking and image publishing. |
+| Google Cloud Run | Stockholm (`europe-north2`) | Supports multi-container services and usage-based billing. | Would require a separate GCP project, permissions and deployment pipeline. |
+
+Azure was selected because the team already had access to an Azure subscription
+and resource group, and the GitHub Actions deployment using OIDC was working.
+The decision was based on the existing team setup and reduced operational work,
+not on a verified claim that Azure is the cheapest provider.
+
+## 11. Inlåsning
+
+The following files contain Azure-specific deployment or infrastructure
+configuration and would need to be reviewed when moving to another hosting
+provider:
+
+- `infra/azure/staging.yaml` — Azure Container Apps configuration.
+- `infra/azure/skapa-staging.sh` — creates or updates the Azure staging app.
+- `infra/azure/identitet.sh` — Azure identity and authentication setup.
+- `.github/workflows/ci.yml` — GitHub Actions deployment steps and Azure login.
+
+The replacement would also need equivalent container image publishing, environment variables, secrets management, networking, health checks and deployment configuration.
