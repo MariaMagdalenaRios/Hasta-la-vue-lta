@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
@@ -73,12 +72,7 @@ const climb = computed(() => (tour.value ? elevationGain(tour.value.logs) : 0))
     <p v-if="tour.notes">{{ tour.notes }}</p>
 
     <h2>Lägg till bild</h2>
-    <input
-      type="file"
-      accept="image/*"
-      :disabled="uploading"
-      @change="handleImageUpload"
-    />
+    <input type="file" accept="image/*" :disabled="uploading" @change="handleImageUpload" />
 
     <p v-if="uploading">Behandlar bilden…</p>
     <p v-if="uploadError" role="alert">{{ uploadError }}</p>
@@ -89,9 +83,7 @@ const climb = computed(() => (tour.value ? elevationGain(tour.value.logs) : 0))
       <p>Bearbetningstid: {{ uploadResult.processingMs }} ms</p>
       <p>API-tid: {{ uploadResult.apiMs }} ms</p>
 
-      <p v-if="uploadResult.coldStart">
-        Kallstart
-      </p>
+      <p v-if="uploadResult.coldStart">Kallstart</p>
 
       <h3>Bildvarianter</h3>
       <ul>

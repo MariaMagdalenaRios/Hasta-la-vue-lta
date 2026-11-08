@@ -1,4 +1,3 @@
-
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within, fireEvent } from '@testing-library/vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
@@ -191,15 +190,21 @@ describe('TourDetailView', () => {
       { size: 160, signature: 'd' },
     ]
 
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(makeTour()), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        variants,
-        processingMs: 25,
-        apiMs: 40,
-        coldStart: true,
-        instance: 'local',
-      }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            variants,
+            processingMs: 25,
+            apiMs: 40,
+            coldStart: true,
+            instance: 'local',
+          }),
+          { status: 200 },
+        ),
+      )
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -245,18 +250,27 @@ describe('TourDetailView', () => {
   })
 
   it('shows a friendly error message when image processing returns 502', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(makeTour()), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: 'Image processing failed',
-      }), { status: 502 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: 'Image processing failed',
+          }),
+          { status: 502 },
+        ),
+      )
 
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({
-      width: 1200,
-      height: 800,
-      close: vi.fn(),
-    }))
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn().mockResolvedValue({
+        width: 1200,
+        height: 800,
+        close: vi.fn(),
+      }),
+    )
 
     const { container } = await renderView()
     await screen.findByRole('heading', { name: 'Toppturen' })
