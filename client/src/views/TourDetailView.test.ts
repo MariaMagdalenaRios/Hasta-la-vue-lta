@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, within } from '@testing-library/vue'
+
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, within, fireEvent } from '@testing-library/vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import type { TourDetail, TourLog } from '@utpost/shared'
 import TourDetailView from './TourDetailView.vue'
@@ -169,5 +170,104 @@ describe('TourDetailView', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch')
     })
+  })
+
+  it('shows an image file input on the tour detail page', async () => {
+    stubFetch(makeTour())
+    const { container } = await renderView()
+
+    await screen.findByRole('heading', { name: 'Toppturen' })
+
+    const input = container.querySelector('input[type="file"]')
+    expect(input).toBeInTheDocument()
+    expect(input).toHaveAttribute('accept', 'image/*')
+  })
+
+  it('sends image metadata and displays the processing result', async () => {
+    const variants = [
+      { size: 1600, signature: 'a' },
+      { size: 800, signature: 'b' },
+      { size: 400, signature: 'c' },
+      { size: 160, signature: 'd' },
+    ]
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(makeTour()), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        variants,
+        processingMs: 25,
+        apiMs: 40,
+        coldStart: true,
+        instance: 'local',
+      }), { status: 200 }))
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const close = vi.fn()
+    const createBitmapMock = vi.fn().mockResolvedValue({
+      width: 1200,
+      height: 800,
+      close,
+    })
+    vi.stubGlobal('createImageBitmap', createBitmapMock)
+
+    const { container } = await renderView()
+    await screen.findByRole('heading', { name: 'Toppturen' })
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['image'], 'bild.png', { type: 'image/png' })
+
+    await fireEvent.change(input, { target: { files: [file] } })
+
+    expect(await screen.findByText('Bildbehandling klar!')).toBeInTheDocument()
+
+    expect(createBitmapMock).toHaveBeenCalledWith(file)
+    expect(close).toHaveBeenCalled()
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/photos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tourId: 7,
+        filename: 'bild.png',
+        width: 1200,
+        height: 800,
+      }),
+    })
+
+    expect(screen.getByText('Bearbetningstid: 25 ms')).toBeInTheDocument()
+    expect(screen.getByText('API-tid: 40 ms')).toBeInTheDocument()
+    expect(screen.getByText('Kallstart')).toBeInTheDocument()
+
+    for (const variant of variants) {
+      expect(screen.getByText(`${variant.size} px – ${variant.signature}`)).toBeInTheDocument()
+    }
+  })
+
+  it('shows a friendly error message when image processing returns 502', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(makeTour()), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: 'Image processing failed',
+      }), { status: 502 }))
+
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({
+      width: 1200,
+      height: 800,
+      close: vi.fn(),
+    }))
+
+    const { container } = await renderView()
+    await screen.findByRole('heading', { name: 'Toppturen' })
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['image'], 'bild.png', { type: 'image/png' })
+
+    await fireEvent.change(input, { target: { files: [file] } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Bilden kunde inte behandlas. Försök igen senare.',
+    )
   })
 })
