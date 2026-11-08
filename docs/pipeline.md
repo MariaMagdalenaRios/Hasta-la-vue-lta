@@ -187,4 +187,16 @@ Följande information dokumenteras när deploymenten har verifierats:
 - Azure Container App revision name.
 - Resultat från health check och GraphQL-smoketest.
 
-**Status:** Deploymentresultat inväntar verifiering av Azure staging-deploymenten.
+### Verifierat deploymentresultat
+
+| Uppgift | Resultat |
+| --- | --- |
+| Pull request-körning (Deploy hoppad över) | [Körning 42472517139](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/42472517139) (PR #136) |
+| Körning efter merge till `main` | _Läggs till efter merge_ |
+| Deploy-jobbets körtid | _Läggs till efter merge_ |
+| Bekräftad commit-SHA | _Läggs till efter merge_ |
+| Azure Container App revision | _Läggs till efter merge_ |
+| Health check | _Läggs till efter merge_ |
+| GraphQL-smoketest | _Läggs till efter merge_ |
+
+**Status:** Deploymentresultat inväntar verifiering av Azure staging-deploymenten efter merge till `main`.
