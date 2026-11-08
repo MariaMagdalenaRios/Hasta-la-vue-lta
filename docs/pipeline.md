@@ -127,8 +127,8 @@ Image-jobbet körs efter att Kvalitet, Bygg och Integration har lyckats. Det byg
 
 Images publiceras som:
 
-- `ghcr.io/1sa1asdev/hasta-la-vue-lta-api`
-- `ghcr.io/1sa1asdev/hasta-la-vue-lta-client`
+- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-api`
+- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-client`
 
 ## Deploy till Azure staging
 
