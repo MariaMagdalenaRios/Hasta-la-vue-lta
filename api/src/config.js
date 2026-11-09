@@ -13,4 +13,6 @@ export const config = {
   port: Number(process.env.PORT) || 4000,
   gitSha: process.env.GIT_SHA || 'dev',
   uploadDir: './uploads',
+  imageFunctionUrl: process.env.IMAGE_FUNCTION_URL,
+  imageFunctionKey: process.env.IMAGE_FUNCTION_KEY,
 };
