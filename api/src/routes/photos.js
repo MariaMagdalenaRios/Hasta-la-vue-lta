@@ -29,7 +29,7 @@ photosRouter.post('/', async (req, res) => {
     const response = await fetch(config.imageFunctionUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ width, height }),
+      body: JSON.stringify({ filename, width, height }),
     });
 
     if (!response.ok) {

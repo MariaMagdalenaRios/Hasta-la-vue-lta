@@ -92,7 +92,11 @@ describe('Photo upload API', () => {
           'Content-Type': 'application/json',
           'x-functions-key': 'test-function-key',
         }),
-        body: JSON.stringify({ width: 400, height: 300 }),
+        body: JSON.stringify({
+          filename: 'test.jpg',
+          width: 400,
+          height: 300,
+        }),
       }),
     );
 
