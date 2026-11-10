@@ -71,3 +71,24 @@ export type TourWithRelations = Tour & {
 export interface ApiError {
   error: string
 }
+
+
+export interface PhotoUploadRequest {
+  tourId: number
+  filename: string
+  width: number
+  height: number
+}
+
+export interface PhotoVariant {
+  size: number
+  signature: string
+}
+
+export interface PhotoUploadResponse {
+  variants: PhotoVariant[]
+  processingMs: number
+  coldStart: boolean
+  instance: string
+  apiMs: number
+}
