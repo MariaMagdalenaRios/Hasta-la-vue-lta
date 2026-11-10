@@ -13,7 +13,6 @@ export const config = {
   port: Number(process.env.PORT) || 4000,
   gitSha: process.env.GIT_SHA || 'dev',
   uploadDir: './uploads',
-  // M7: bildfunktionen i Azure. Utan IMAGE_FUNCTION_URL bearbetar API:et bilden själv.
   imageFunctionUrl: process.env.IMAGE_FUNCTION_URL,
   imageFunctionKey: process.env.IMAGE_FUNCTION_KEY,
 };

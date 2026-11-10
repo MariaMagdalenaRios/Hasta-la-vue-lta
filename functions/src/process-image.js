@@ -13,43 +13,45 @@ let coldStart = true;
 // Ett skydd så att ett felskrivet anrop inte ber om en buffert på flera GB (4 byte per pixel).
 const MAX_PIXELS = 50_000_000;
 
+export const processImageHandler = async (request, context) => {
+  const wasColdStart = coldStart;
+  coldStart = false;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, jsonBody: { error: 'skicka JSON: { filename, width, height }' } };
+  }
+  const { filename, width, height } = body ?? {};
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > MAX_PIXELS) {
+    return { status: 400, jsonBody: { error: 'width och height ska vara positiva heltal (högst 50 MP)' } };
+  }
+
+  const { variants, processingMs } = processImage(width, height);
+
+  // context.log hamnar i func start-terminalen lokalt och i Application Insights/loggströmmen i Azure.
+  context.log(
+    `process-image: ${filename} ${width}x${height} → ${variants.length} varianter på ${processingMs} ms` +
+      (wasColdStart ? ' (kallstart)' : ''),
+  );
+
+  return {
+    jsonBody: {
+      variants,
+      processingMs,
+      coldStart: wasColdStart,
+      // Vilken instans som svarade. WEBSITE_INSTANCE_ID sätts av Azure; lokalt blir det datorns namn.
+      instance: process.env.WEBSITE_INSTANCE_ID ?? os.hostname(),
+      node: process.version,
+    },
+  };
+};
+
 app.http('process-image', {
   methods: ['POST'],
   // 'function' = anroparen måste skicka funktionsnyckeln (header x-functions-key) i Azure.
   // Lokalt kontrollerar func start ingen nyckel.
   authLevel: 'function',
-  handler: async (request, context) => {
-    const wasColdStart = coldStart;
-    coldStart = false;
-
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      return { status: 400, jsonBody: { error: 'skicka JSON: { filename, width, height }' } };
-    }
-    const { filename, width, height } = body ?? {};
-    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > MAX_PIXELS) {
-      return { status: 400, jsonBody: { error: 'width och height ska vara positiva heltal (högst 50 MP)' } };
-    }
-
-    const { variants, processingMs } = processImage(width, height);
-
-    // context.log hamnar i func start-terminalen lokalt och i Application Insights/loggströmmen i Azure.
-    context.log(
-      `process-image: ${filename} ${width}x${height} → ${variants.length} varianter på ${processingMs} ms` +
-        (wasColdStart ? ' (kallstart)' : ''),
-    );
-
-    return {
-      jsonBody: {
-        variants,
-        processingMs,
-        coldStart: wasColdStart,
-        // Vilken instans som svarade. WEBSITE_INSTANCE_ID sätts av Azure; lokalt blir det datorns namn.
-        instance: process.env.WEBSITE_INSTANCE_ID ?? os.hostname(),
-        node: process.version,
-      },
-    };
-  },
+  handler: processImageHandler,
 });

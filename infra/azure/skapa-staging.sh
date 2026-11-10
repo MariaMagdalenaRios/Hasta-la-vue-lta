@@ -3,6 +3,8 @@ set -euo pipefail
 
 : "${REPO:?Sätt REPO=<ägare>/<repo> (t.ex. jonatanhallenberg/utpost-cloud-labb)}"
 : "${SHA:?Sätt SHA=<hela git-sha:n på main som Image har publicerat>}"
+: "${IMAGE_FUNCTION_URL:?Sätt IMAGE_FUNCTION_URL till Azure Function-adressen}"
+: "${IMAGE_FUNCTION_KEY:?Sätt IMAGE_FUNCTION_KEY till Azure Function-nyckeln}"
 RG="${RG:-utpost-maria-rios-rg}"
 LOC="${LOC:-swedencentral}"
 ENV_NAME="${ENV_NAME:-utpost-env}"
@@ -32,6 +34,8 @@ TMP="$(mktemp)"
 sed -e "s|__LOCATION__|${LOC}|g" -e "s|__APP__|${APP}|g" -e "s|__RG__|${RG}|g" -e "s|__ENV_ID__|${ENV_ID}|g" \
     -e "s|__IMAGE_API__|${IMAGE_API}|g" -e "s|__IMAGE_CLIENT__|${IMAGE_CLIENT}|g" \
     -e "s|__JWT_SECRET__|${JWT_SECRET}|g" -e "s|__DB_PASSWORD__|${DB_PASSWORD}|g" \
+    -e "s|__IMAGE_FUNCTION_URL__|${IMAGE_FUNCTION_URL}|g" \
+    -e "s|__IMAGE_FUNCTION_KEY__|${IMAGE_FUNCTION_KEY}|g" \
     "$(dirname "$0")/staging.yaml" > "${TMP}"
 az containerapp create --resource-group "${RG}" --name "${APP}" --yaml "${TMP}" --output none
 rm -f "${TMP}"
