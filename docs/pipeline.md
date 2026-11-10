@@ -11,12 +11,18 @@ flowchart LR
     Q --> S{alla gröna?}
     BU --> S
     I --> S
-    S -->|ja| IM[Image]
-    IM --> M[merge]
-    M --> D[Deploy Azure staging]
-    D --> H[Health check + GraphQL smoke test]
     S -->|nej| F[fixa, pusha igen]
-```
+    S -->|ja| IM[Image]
+    IM --> M[merge till main]
+    M --> Q2[Kvalitet]
+    M --> BU2[Bygg]
+    M --> I2[Integration]
+    Q2 --> IM2[Image]
+    BU2 --> IM2
+    I2 --> IM2
+    IM2 -->|publicera images till GHCR| D[Deploy Azure staging]
+    D --> H[Health check + GraphQL smoke test]
+
 ## Vad stegen fångar
 
 - **Lint:** hittar kodfel och problem med kodregler, till exempel oanvända variabler.
@@ -65,6 +71,11 @@ Branch protection för `main` kräver att följande checks är gröna innan en p
 - **Integration**
 - **Image**
 
+Deploy är inte en obligatorisk branch protection-check eftersom jobbet
+endast körs efter push till `main` och hoppas över för pull requests.
+Det är därför Kvalitet, Bygg, Integration och Image som måste vara gröna
+för att en pull request ska kunna mergas.
+
 `Image` väntar på att Kvalitet, Bygg och Integration har lyckats. På pull requests byggs images utan att publiceras. På pushes till `main` publiceras de till GHCR.
 
 ## Uppmätta tider
@@ -84,6 +95,21 @@ Tider från en tidigare grön GitHub Actions-körning, innan Integration-jobbet 
 | Bygg totalt        | 25 s |
 
 Det längsta enskilda steget var `npm ci` i Bygg-jobbet med 10 sekunder.
+
+### Senaste pipeline-körning på main
+
+GitHub Actions-körning 42481383490 den 2026-11-08:
+
+| Jobb | Körtid |
+|---|---:|
+| Kvalitet | 47 s |
+| Bygg | 47 s |
+| Integration | 1 min |
+| Image | 1 min |
+| Deploy | 1 min |
+
+Tiderna är avrundade enligt GitHub Actions visning. Jobben körs delvis
+parallellt, så tiderna ska inte summeras till en total pipeline-tid.
 
 ## Borttagning av den gamla React-klienten (M6 #3)
 
@@ -127,8 +153,8 @@ Image-jobbet körs efter att Kvalitet, Bygg och Integration har lyckats. Det byg
 
 Images publiceras som:
 
-- `ghcr.io/1sa1asdev/hasta-la-vue-lta-api`
-- `ghcr.io/1sa1asdev/hasta-la-vue-lta-client`
+- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-api`
+- `ghcr.io/mariamagdalenarios/hasta-la-vue-lta-client`
 
 ## Deploy till Azure staging
 
@@ -156,9 +182,12 @@ GitHub Actions autentiserar mot Azure med OpenID Connect (OIDC).
 
 Azure-identitetsinformationen konfigureras som variabler i GitHub Environment `azure-staging`:
 
+- `AZURE_APP`
 - `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
+- `AZURE_RG`
 - `AZURE_SUBSCRIPTION_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_URL`
 
 Workflow-jobbet använder `id-token: write` för att hämta en OIDC-token.
 
@@ -166,11 +195,11 @@ Inga Azure-credentials eller hemliga värden ska lagras direkt i workflow-filen 
 
 ### Deployment
 
-Deploy-jobbet ska använda API- och klientimages som byggts och publicerats av Image-jobbet för samma commit.
+Deploy-jobbet använder API- och klientimages som byggts och publicerats av Image-jobbet för samma commit.
 
 Images identifieras med commitens SHA-tag, så att den version som testats också är den version som distribueras.
 
-Efter deployment ska jobbet:
+Efter deployment kontrollerar jobbet:
 
 1. Vänta tills `/api/health` svarar och bekräftar rätt commit-SHA.
 2. Göra ett GraphQL-smoketest via klienten.
@@ -178,13 +207,19 @@ Efter deployment ska jobbet:
 
 ### Deploymentresultat
 
-Följande information dokumenteras när deploymenten har verifierats:
+Deploy-jobbet dokumenterar körning, körtid, commit-SHA, Azure revision
+och resultat från health check och GraphQL-smoketest.
 
-- GitHub Actions-körning för en pull request där Deploy hoppas över.
-- GitHub Actions-körning efter merge till `main`.
-- Deploy-jobbets totala körtid.
-- Bekräftad commit-SHA.
-- Azure Container App revision name.
-- Resultat från health check och GraphQL-smoketest.
+### Verifierat deploymentresultat
 
-**Status:** Deploymentresultat inväntar verifiering av Azure staging-deploymenten.
+| Uppgift | Resultat |
+|---|---|
+| Pull request-körning (Deploy hoppad över) | [Körning 42472517139](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/42472517139) (PR #136) |
+| Körning efter merge till `main` | [Körning 42481383490](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/42481383490) |
+| Deploy-jobbets körtid | 1 min |
+| Bekräftad commit-SHA | `b844d49c00ebb419fd7cedba612685a4f3b4aa01` |
+| Azure Container App revision | `hasta-la-vue-lta-staging--0000015` |
+| Health check | HTTP 200, rätt commit-SHA, PostgreSQL och MongoDB OK |
+| GraphQL-smoketest | `{ guides { slug } }` returnerade 40 guider |
+
+**Status:** Deploymenten till Azure staging är verifierad efter merge till `main`.

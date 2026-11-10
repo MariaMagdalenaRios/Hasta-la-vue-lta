@@ -216,7 +216,41 @@ jobs:
             --container-name client \
             --image "ghcr.io/mariamagdalenarios/hasta-la-vue-lta-client:sha-${GITHUB_SHA::7}"
 
-      - name: Verify deployment health
+      - name: Verify deployed SHA via health check
         run: |
-          curl --fail --retry 12 --retry-delay 10 --retry-all-errors \
-            "${{ vars.AZURE_URL }}/api/health"
+          for i in $(seq 1 18); do
+            deployed=$(curl --silent --fail "${{ vars.AZURE_URL }}/api/health" | jq -r '.sha // empty' || true)
+            echo "Attempt $i: deployed sha='${deployed}' expected='${GITHUB_SHA}'"
+            if [ "${deployed}" = "${GITHUB_SHA}" ]; then
+              echo "Health check OK: deployed SHA matches commit."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Deployed SHA did not match ${GITHUB_SHA}"
+          exit 1
+
+      - name: Smoke-test GraphQL through the client
+        run: |
+          response=$(curl --silent --fail --retry 6 --retry-delay 10 --retry-all-errors \
+            -X POST "${{ vars.AZURE_URL }}/graphql" \
+            -H "Content-Type: application/json" \
+            --data '{"query":"{ guides { slug } }"}')
+          echo "GraphQL response: ${response}"
+          count=$(echo "${response}" | jq '.data.guides | length')
+          if [ "${count}" -lt 1 ]; then
+            echo "::error::GraphQL returned no database data"
+            exit 1
+          fi
+          echo "GraphQL smoke test OK: ${count} guides returned."
+
+      - name: Record Azure revision name
+        run: |
+          revision=$(az containerapp show \
+            --name "${{ vars.AZURE_APP }}" \
+            --resource-group "${{ vars.AZURE_RG }}" \
+            --query properties.latestRevisionName -o tsv)
+          echo "Azure revision: ${revision}"
+          echo "### Azure staging deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Revision: \`${revision}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
