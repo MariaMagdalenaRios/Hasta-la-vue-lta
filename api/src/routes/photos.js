@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client.js';
+import { config } from '../config.js';
 
 export const photosRouter = Router();
 
@@ -35,26 +36,52 @@ const signature = (pixels) => {
   return hash.toString(16);
 };
 
+// M7: anropar bildfunktionen i Azure. Nyckeln kommer ur miljön (secret i Azure) – aldrig ur en fil.
+const processInFunction = async (filename, width, height) => {
+  const response = await fetch(config.imageFunctionUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-functions-key': config.imageFunctionKey ?? '' },
+    body: JSON.stringify({ filename, width, height }),
+  });
+  if (!response.ok) throw new Error(`bildfunktionen svarade ${response.status}`);
+  return response.json();
+};
+
 photosRouter.post('/', async (req, res) => {
   const { tourId, filename, width, height } = req.body;
 
-  // Klienten skickar inte pixeldata än, så vi genererar en platshållare
-  // med samma dimensioner. Samma arbete, samma tid.
-  const pixels = new Uint8Array(width * height * 4).fill(128);
+  let variants;
+  let processingMs;
+  let fn;
 
-  const started = Date.now();
-  const variants = SIZES.map((size) => {
-    const scaled = resize(pixels, width, height, size);
-    return { size, signature: signature(scaled.pixels) };
-  });
-  const ms = Date.now() - started;
+  if (config.imageFunctionUrl) {
+    try {
+      const { variants: v, processingMs: ms, coldStart, instance, node } = await processInFunction(filename, width, height);
+      variants = v;
+      processingMs = ms;
+      fn = { coldStart, instance, node };
+    } catch (error) {
+      return res.status(502).json({ error: error.message });
+    }
+  } else {
+    // Klienten skickar inte pixeldata än, så vi genererar en platshållare
+    // med samma dimensioner. Samma arbete, samma tid.
+    const pixels = new Uint8Array(width * height * 4).fill(128);
+
+    const started = Date.now();
+    variants = SIZES.map((size) => {
+      const scaled = resize(pixels, width, height, size);
+      return { size, signature: signature(scaled.pixels) };
+    });
+    processingMs = Date.now() - started;
+  }
 
   const result = await pool.query(
     'insert into photos (tour_id, filename, width, height) values ($1,$2,$3,$4) returning *',
     [tourId, filename, width, height],
   );
 
-  res.json({ ...result.rows[0], variants, processingMs: ms });
+  res.json({ ...result.rows[0], variants, processingMs, ...(fn && { function: fn }) });
 });
 
 photosRouter.get('/tour/:tourId', async (req, res) => {
