@@ -80,15 +80,15 @@ Measured on 2026-11-10 with an authenticated `curl` POST (`{"filename":"fjall.jp
 
 | | Total time | Processing time |
 |---|---:|---:|
-| Cold start (7 of 8 calls) | 0.91–1.45 s | 66–98 ms |
-| Warm (1 call, `coldStart: false`) | 0.24 s | 66 ms |
+| Cold start (11 of 13 calls) | 0.91–1.55 s | 66–98 ms |
+| Warm (2 calls, `coldStart: false`) | 0.24–0.31 s | 66 ms |
 
 - Processing takes about 66–98 ms in both cases. Almost all of the cold-start time is instance start-up.
-- Cold-start overhead is about 0.7–1.2 s on top of the warm time.
+- Cold-start overhead is about 0.7–1.3 s on top of the warm time.
 - Warm total time includes network and TLS from the laptop to Azure, about 0.17 s.
-- Seven of eight calls were cold because of `perInstanceConcurrency=1` and the gap between calls.
+- Eleven of thirteen calls were cold because of `perInstanceConcurrency=1` and the gap between calls.
 
-Limitation: there is only one warm sample. For a firmer warm figure, run 10 or more back-to-back calls and use the median.
+Limitation: there are only two warm samples (0.24 s and 0.31 s). For a firmer warm figure, run 10 or more back-to-back calls and use the median.
 
 The function response includes `coldStart`, `instance` and `node`, so the staging upload response can show which instance handled the request.
 
