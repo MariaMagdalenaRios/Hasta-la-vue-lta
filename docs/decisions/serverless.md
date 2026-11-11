@@ -54,19 +54,19 @@ Image processing runs as an Azure Function (`process-image`) instead of inside t
 
 | Setting | Value |
 |---|---|
-| Function App | `hasta-la-vue-lta-fn` |
+| Function App | `hasta-la-vue-lta-image-fn` |
 | Plan | Flex Consumption |
 | Runtime | Node.js 22 |
-| Region | `germanywestcentral` |
+| Region | `swedencentral` |
 | Resource group | `utpost-maria-rios-rg` |
 | Instance memory | 2048 MB |
 | Maximum instances | 10 |
 | Concurrent HTTP requests per instance | 1 |
-| URL | `https://hasta-la-vue-lta-fn.azurewebsites.net/api/process-image` |
+| URL | `https://hasta-la-vue-lta-image-fn.azurewebsites.net/api/process-image` |
 
 The function is created by `infra/azure/skapa-funktion.sh`. The function key is never stored in the repository. It is read at runtime and stored as the Azure Container Apps secret `image-function-key`.
 
-The function runs in `germanywestcentral` and not in `swedencentral`, where the resource group is. The subscription policy "Allowed resource deployment regions" only permits `italynorth`, `austriaeast`, `switzerlandnorth`, `germanywestcentral` and `denmarkeast`. Of these, Flex Consumption supports all except `denmarkeast`.
+The first function deployment (`hasta-la-vue-lta-fn`, used for the cold-start measurements) ran in `germanywestcentral` and not in `swedencentral`, where the resource group is. The current function `hasta-la-vue-lta-image-fn` runs in `swedencentral`. The policy "Allowed resource deployment regions" in the subscription of the first deployment only permits `italynorth`, `austriaeast`, `switzerlandnorth`, `germanywestcentral` and `denmarkeast`. Of these, Flex Consumption supports all except `denmarkeast`.
 
 ## Concurrency
 
@@ -76,7 +76,7 @@ The setting `perInstanceConcurrency=1` gives each simultaneous request its own i
 
 ## Cold-start measurement
 
-Measured on 2026-11-10 with an authenticated `curl` POST (`{"filename":"fjall.jpg","width":4000,"height":3000}`) from a developer laptop. The function returns four variants (1600, 800, 400 and 160 px).
+Measured on 2026-11-10 against a first deployment of the same function, `hasta-la-vue-lta-fn`, in a separate Azure subscription (created with the same script and settings), with an authenticated `curl` POST (`{"filename":"fjall.jpg","width":4000,"height":3000}`) from a developer laptop. The function returns four variants (1600, 800, 400 and 160 px).
 
 | | Total time | Processing time |
 |---|---:|---:|
@@ -94,6 +94,20 @@ The function response includes `coldStart`, `instance` and `node`, so the stagin
 
 ## Staging integration
 
-Status: not done yet. The staging Container App `hasta-la-vue-lta-staging` did not exist when the function was deployed.
+Status: done. The staging Container App `hasta-la-vue-lta-staging` (resource group `utpost-maria-rios-rg`, `swedencentral`) is connected to `hasta-la-vue-lta-image-fn`. The api container has `IMAGE_FUNCTION_URL` and `IMAGE_FUNCTION_KEY`, and the key is stored as the Container Apps secret `image-function-key` (`secretref:`). `/api/health` returns HTTP 200.
 
-When staging exists, rerun the script with `CONTAINER_APP=hasta-la-vue-lta-staging`. It sets `IMAGE_FUNCTION_URL`, adds the secret `image-function-key` and sets `IMAGE_FUNCTION_KEY` with `secretref:`.
+Function authentication works, and the function returns four variants, `processingMs`, `coldStart` and `instance`.
+
+A direct POST to the public staging API (`/api/photos`) returns the function's `instance` field in its response.
+
+Load test against staging, run by Malena (staging owner): 10 concurrent uploads with 4000 × 3000 image dimensions. The test sends image metadata (`filename`, `width`, `height`), not image bytes.
+
+| Measurement | p50 | Max |
+|---|---:|---:|
+| Upload (POST /api/photos) | 1237 ms | 1598 ms |
+| Image processing (processingMs) | 75 ms | 92 ms |
+| API time (apiMs) | 1153 ms | 1506 ms |
+| Health (GET /api/health) | 20 ms | not reported |
+
+- Successful uploads: 10/10
+- Cold starts reported: 0
