@@ -254,3 +254,92 @@ jobs:
           echo "### Azure staging deploy" >> "$GITHUB_STEP_SUMMARY"
           echo "- Revision: \`${revision}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-functions:
+    name: Deploy → Azure Functions
+    runs-on: ubuntu-latest
+    needs: [quality]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: azure-staging
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci --omit=dev
+
+      - name: Log in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy function code
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ vars.AZURE_FUNCTION_APP }}
+          package: functions
+          sku: flexconsumption
+
+      - name: Fetch function key and URL
+        run: |
+          key=$(az functionapp keys list \
+            --name "${{ vars.AZURE_FUNCTION_APP }}" \
+            --resource-group "${{ vars.AZURE_RG }}" \
+            --query functionKeys.default --output tsv)
+          if [ -z "${key}" ]; then
+            echo "::error::Could not read the function key"
+            exit 1
+          fi
+          # Mask before the value is used anywhere else, so it never shows in the logs.
+          echo "::add-mask::${key}"
+          host=$(az functionapp show \
+            --name "${{ vars.AZURE_FUNCTION_APP }}" \
+            --resource-group "${{ vars.AZURE_RG }}" \
+            --query "defaultHostName || properties.defaultHostName" --output tsv)
+          echo "FUNCTION_KEY=${key}" >> "$GITHUB_ENV"
+          echo "FUNCTION_URL=https://${host}/api/process-image" >> "$GITHUB_ENV"
+
+      - name: Smoke-test process-image
+        run: |
+          # Generous timeout and retries for cold starts and deployment sync.
+          response=$(curl --silent --show-error --fail \
+            --max-time 120 --retry 6 --retry-delay 15 --retry-all-errors \
+            -X POST "${FUNCTION_URL}" \
+            -H "x-functions-key: ${FUNCTION_KEY}" \
+            -H "Content-Type: application/json" \
+            --data '{"filename":"smoke.jpg","width":400,"height":300}')
+
+          count=$(printf '%s' "${response}" | jq -er '
+            if (.variants | type) == "array" then
+              (.variants | length)
+            else
+              error("variants is not an array")
+            end
+          ') || {
+            echo "::error::Function returned invalid JSON or missing variants"
+            exit 1
+          }
+
+          if [ "${count}" -ne 4 ]; then
+            echo "::error::Expected 4 image variants, got ${count}"
+            exit 1
+          fi
+
+          echo "Smoke test OK: ${count} image variants returned."
+          echo "### Azure Functions deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Function app: \`${{ vars.AZURE_FUNCTION_APP }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Variants: ${count}" >> "$GITHUB_STEP_SUMMARY"

@@ -22,6 +22,8 @@ flowchart LR
     I2 --> IM2
     IM2 -->|publicera images till GHCR| D[Deploy Azure staging]
     D --> H[Health check + GraphQL smoke test]
+    Q2 --> DF[Deploy → Azure Functions]
+    DF --> FS[Smoke test process-image]
 
 ## Vad stegen fångar
 
@@ -223,3 +225,51 @@ och resultat från health check och GraphQL-smoketest.
 | GraphQL-smoketest | `{ guides { slug } }` returnerade 40 guider |
 
 **Status:** Deploymenten till Azure staging är verifierad efter merge till `main`.
+
+## Deploy → Azure Functions
+
+Deploy → Azure Functions är det sjätte jobbet i pipelinen (Kvalitet, Bygg, Integration, Image, Deploy Azure staging och detta). Det lägger upp koden i `functions/` i den befintliga function appen (Flex Consumption, Node 22). Function appen skapas inte av pipelinen utan av `infra/azure/skapa-funktion.sh`.
+
+### När körs jobbet?
+
+- **Pull request:** jobbet hoppas över (`if: github.event_name == 'push' && github.ref == 'refs/heads/main'`).
+- **Push till `main`:** jobbet körs så fort Kvalitet har lyckats.
+
+### Position i pipelinen
+
+Jobbet har `needs: [quality]`, alltså bara Kvalitet. Det väntar inte på Bygg, Integration eller Image, eftersom funktionen är ett självbärande paket utan Docker-image och databas.
+
+### Autentisering och hemligheter
+
+- Jobbet använder GitHub Environment `azure-staging` och `id-token: write`.
+- Det återanvänder samma passwordless Azure-identitet (OIDC, federated credential) som Deploy Azure staging från M6: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`. Ingen ny identitet, inga secrets.
+- Den enda nya variabeln är `AZURE_FUNCTION_APP` (function appens namn), som sätts i miljön `azure-staging`.
+- Funktionsnyckeln hämtas under körningen med `az functionapp keys list`, maskas direkt med `::add-mask::` och lagras aldrig i en fil eller som secret i repot.
+
+### Steg
+
+1. `npm ci --omit=dev` i `functions/` (deploypaketet ska ha med `node_modules`).
+2. Inloggning till Azure med OIDC.
+3. Deploy med `Azure/functions-action@v1` (`sku: flexconsumption`).
+4. Hämta och maska funktionsnyckeln.
+5. Smoke test: ett POST-anrop till `/api/process-image` med `x-functions-key`. Jobbet kontrollerar att svaret innehåller exakt fyra bildvarianter. Anropet har `--max-time 120` och upprepas upp till sex gånger, så att funktionens kallstart och en nyligen genomförd deploy hinner bli klara.
+
+### Ungefärlig körtid
+
+TODO: fyll i uppmätt tid från första gröna körningen på `main` (förväntat ca 1–2 min, kallstarten ingår).
+
+### Två oberoende deployjobb
+
+Deploy Azure staging (container-apparna) och Deploy → Azure Functions är oberoende av varandra:
+
+| | Deploy Azure staging | Deploy → Azure Functions |
+|---|---|---|
+| Deployar | API- och klientimages till Container Apps | Koden i `functions/` till Azure Functions |
+| Väntar på | Kvalitet, Bygg, Integration, Image | Kvalitet |
+| Verifiering | `/api/health` och GraphQL-smoketest | Smoke test av `process-image` (fyra varianter) |
+
+De körs parallellt, delar ingen artefakt och kan lyckas eller misslyckas var för sig. Om det ena jobbet går rött påverkar det inte det andra.
+
+### Verifierat resultat
+
+TODO: länka körningen för pull request (jobbet hoppas över) och körningen efter merge till `main` med alla sex jobb gröna.
