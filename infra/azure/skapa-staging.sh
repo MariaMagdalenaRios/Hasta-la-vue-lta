@@ -9,6 +9,7 @@ RG="${RG:-utpost-maria-rios-rg}"
 LOC="${LOC:-swedencentral}"
 ENV_NAME="${ENV_NAME:-utpost-env}"
 APP="${APP:-hasta-la-vue-lta-staging}"
+FN_APP="${FN_APP:-$(echo "${REPO#*/}" | tr '[:upper:]' '[:lower:]')-fn}"
 OWNER_LC="$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')"
 IMAGE_API="ghcr.io/${OWNER_LC}-api:sha-${SHA:0:7}"
 IMAGE_CLIENT="ghcr.io/${OWNER_LC}-client:sha-${SHA:0:7}"
@@ -39,6 +40,22 @@ sed -e "s|__LOCATION__|${LOC}|g" -e "s|__APP__|${APP}|g" -e "s|__RG__|${RG}|g" -
 az containerapp create --resource-group "${RG}" --name "${APP}" --yaml "${TMP}" --output none
 rm -f "${TMP}"
 unset JWT_SECRET DB_PASSWORD
+
+# Bildfunktionen (M7): URL som variabel, nyckeln som secret. Nyckeln läses ur Azure här och skrivs aldrig i en fil.
+# Funktionen skapas av infra/azure/skapa-funktion.sh – finns den inte hoppar vi över kopplingen.
+echo "→ funktionen ${FN_APP}: IMAGE_FUNCTION_URL och secret image-function-key"
+if az functionapp show --name "${FN_APP}" --resource-group "${RG}" --output none 2>/dev/null; then
+  FN_KEY="$(az functionapp keys list --name "${FN_APP}" --resource-group "${RG}" --query functionKeys.default --output tsv)"
+  FN_HOST="$(az functionapp show --name "${FN_APP}" --resource-group "${RG}" --query "defaultHostName || properties.defaultHostName" --output tsv)"
+  az containerapp secret set --name "${APP}" --resource-group "${RG}" --secrets "image-function-key=${FN_KEY}" --output none
+  # Secrets ger ingen ny revision – variabeländringen gör det, och den nya revisionen läser secreten.
+  az containerapp update --name "${APP}" --resource-group "${RG}" --container-name api \
+    --set-env-vars "IMAGE_FUNCTION_URL=https://${FN_HOST}/api/process-image" "IMAGE_FUNCTION_KEY=secretref:image-function-key" \
+    --revision-suffix "fn-$(date +%m%d%H%M%S)" --output none
+  unset FN_KEY
+else
+  echo "  function app ${FN_APP} finns inte i ${RG} – kör infra/azure/skapa-funktion.sh först"
+fi
 
 FQDN="$(az containerapp show --name "${APP}" --resource-group "${RG}" --query properties.configuration.ingress.fqdn --output tsv)"
 echo
