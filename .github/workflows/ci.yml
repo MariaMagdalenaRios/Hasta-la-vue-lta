@@ -314,19 +314,30 @@ jobs:
 
       - name: Smoke-test process-image
         run: |
-          # Generous timeout and retries: the first call is a cold start, and a fresh deploy can take a moment to sync.
+          # Generous timeout and retries for cold starts and deployment sync.
           response=$(curl --silent --show-error --fail \
             --max-time 120 --retry 6 --retry-delay 15 --retry-all-errors \
             -X POST "${FUNCTION_URL}" \
             -H "x-functions-key: ${FUNCTION_KEY}" \
             -H "Content-Type: application/json" \
             --data '{"filename":"smoke.jpg","width":400,"height":300}')
-          echo "Function response: ${response}"
-          count=$(echo "${response}" | jq '.variants | length')
+
+          count=$(printf '%s' "${response}" | jq -er '
+            if (.variants | type) == "array" then
+              (.variants | length)
+            else
+              error("variants is not an array")
+            end
+          ') || {
+            echo "::error::Function returned invalid JSON or missing variants"
+            exit 1
+          }
+
           if [ "${count}" -ne 4 ]; then
             echo "::error::Expected 4 image variants, got ${count}"
             exit 1
           fi
+
           echo "Smoke test OK: ${count} image variants returned."
           echo "### Azure Functions deploy" >> "$GITHUB_STEP_SUMMARY"
           echo "- Function app: \`${{ vars.AZURE_FUNCTION_APP }}\`" >> "$GITHUB_STEP_SUMMARY"
