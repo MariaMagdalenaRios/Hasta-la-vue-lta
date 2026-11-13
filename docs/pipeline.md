@@ -254,9 +254,9 @@ Jobbet har `needs: [quality]`, alltså bara Kvalitet. Det väntar inte på Bygg,
 4. Hämta och maska funktionsnyckeln.
 5. Smoke test: ett POST-anrop till `/api/process-image` med `x-functions-key`. Jobbet kontrollerar att svaret innehåller exakt fyra bildvarianter. Anropet har `--max-time 120` och upprepas upp till sex gånger, så att funktionens kallstart och en nyligen genomförd deploy hinner bli klara.
 
-### Ungefärlig körtid
+### Uppmätt körtid
 
-TODO: fyll i uppmätt tid från första gröna körningen på `main` (förväntat ca 1–2 min, kallstarten ingår).
+Den första lyckade körningen på `main` (GitHub Actions run [43260305495](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43260305495)) tog **48 sekunder** för jobbet `Deploy → Azure Functions`. Hela workflowen tog **4 minuter och 26 sekunder**. Jobbtiden inkluderar installation av beroenden, Azure-inloggning med OIDC, deploy, hämtning och maskning av funktionsnyckeln samt smoke test.
 
 ### Två oberoende deployjobb
 
@@ -272,4 +272,7 @@ De körs parallellt, delar ingen artefakt och kan lyckas eller misslyckas var f�
 
 ### Verifierat resultat
 
-TODO: länka körningen för pull request (jobbet hoppas över) och körningen efter merge till `main` med alla sex jobb gröna.
+| Körning | Resultat |
+|---|---|
+| Pull request #148 | [Körning 43258867241](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43258867241) – CI lyckades. Deploy-jobben hoppades över enligt villkoret för `push` till `main`. |
+| Efter merge till `main` | [Körning 43260305495](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43260305495) – alla sex jobb lyckades, inklusive Deploy → Azure Functions och dess smoke test. |

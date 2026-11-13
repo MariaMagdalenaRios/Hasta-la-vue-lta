@@ -111,3 +111,106 @@ Load test against staging, run by Malena (staging owner): 10 concurrent uploads 
 
 - Successful uploads: 10/10
 - Cold starts reported: 0
+
+## Original Problem and Technical Debt
+
+Before the change, image processing ran inside the Express API when handling `POST /api/photos`.
+
+Image processing is CPU-intensive JavaScript work. Because Node.js executes JavaScript on its event loop, this work could delay other API requests, including `GET /api/health`. In the baseline load test, the maximum health response time was 4524 ms.
+
+Moving image processing out of the API allows the API to remain responsive while the function handles the processing workload independently.
+
+Technical debt #8 in `docs/debt.md` concerned inconsistent API error handling in the old React views (`web/src/pages/*.jsx`). It was later marked as resolved after the Vue migration improved error handling. It is historical context, not the cause of the image-processing performance problem.
+
+## Architecture Decision
+
+**Decision: use Azure Functions for image processing.**
+
+The Express API sends image metadata to an independently deployed Azure Function and receives the generated image variants. The API remains responsible for HTTP requests and application logic; the function handles image processing.
+
+### Alternatives Considered
+
+Exactly two alternatives were considered.
+
+#### 1. Azure Functions — selected
+
+Azure Functions is Microsoft's managed serverless compute platform. It runs code in response to triggers, such as HTTP requests, without requiring the project to manage servers.
+
+It was selected because:
+
+- It integrates directly with the project's existing Azure environment.
+- It supports the Node.js 22 runtime used by this project.
+- It allows image processing to scale independently of the API.
+- It supports independent deployment through the existing GitHub Actions workflow.
+- It avoids introducing another deployment framework or hosting platform.
+
+#### 2. Serverless Framework — not selected
+
+Serverless Framework is a framework and command-line tool for defining, packaging and deploying serverless applications and their cloud resources. It is not a hosting platform itself; the functions still run on a cloud provider.
+
+It can be useful when a project manages many functions and infrastructure resources, needs a shared deployment workflow across services, or benefits from its established integrations with providers such as AWS.
+
+It was not selected for Utpost because this project needs one Azure-hosted image-processing function and already uses Azure Functions directly. Adding Serverless Framework would introduce another configuration and deployment abstraction without providing a necessary capability. The native Azure Functions tooling and existing GitHub Actions workflow are a simpler fit for this Azure-specific implementation.
+
+### Why Azure Functions Is Sufficient
+
+Utpost currently needs one independently scalable function for image processing. It does not need a multi-cloud deployment abstraction or a larger serverless orchestration framework.
+
+Azure Functions provides the required HTTP trigger, Node.js runtime, independent scaling and deployment.
+
+A change could be considered if the application needs to support multiple cloud providers, grows to a point where a shared deployment framework provides clear value, or Azure Functions no longer meets measured performance, scaling, cost or reliability requirements.
+
+## Code Location and Vendor Lock-in
+
+The function implementation is in `functions/`. The HTTP-triggered handler is in `functions/src/process-image.js`, and image-processing logic is in `functions/src/image.js`.
+
+The image-processing logic is largely portable Node.js code. The function adapter and deployment are Azure-specific, including:
+
+- The `@azure/functions` programming model and `host.json`.
+- Azure Function App hosting and Flex Consumption configuration.
+- Azure function-key authentication.
+- Azure-specific resource configuration and deployment through `Azure/functions-action@v1`.
+
+Moving to another cloud would require replacing the function entry point, authentication, deployment configuration and hosting integration. The core image-processing logic could potentially be reused.
+
+## Operational Consequences
+
+### Azure Costs
+
+The function has its own Azure resource usage and billing, separate from the Container Apps API. Costs depend on execution count, execution duration, memory allocation and the applicable Azure pricing.
+
+Usage and costs should be monitored in Azure Cost Management. No specific cost saving is claimed without measured billing data.
+
+### Function Key Storage and Rotation
+
+The function uses function-key authentication. The key must not be committed to the repository or printed in CI logs.
+
+The API receives the key through `IMAGE_FUNCTION_KEY`, backed by the Azure Container Apps secret `image-function-key`.
+
+When rotating the key:
+
+1. Generate or regenerate the function key in Azure.
+2. Update the Container Apps secret `image-function-key`.
+3. Ensure the API container receives the updated secret.
+4. Verify that image-processing requests still succeed.
+
+The key must remain out of source control and application logs.
+
+### Independent Deployments
+
+The GitHub Actions workflow has separate deployment jobs for Azure Container Apps and Azure Functions:
+
+- The Container Apps deployment publishes the API and client.
+- The Azure Functions deployment publishes the code in `functions/` to the Function App.
+
+The jobs can succeed or fail independently. A successful API deployment does not prove that the function deployment succeeded, and vice versa. Each deployment therefore needs its own verification or smoke test.
+
+## Cold-Start Acceptability
+
+Cold-start impact should be evaluated using the total image-upload request time together with the function's `coldStart` value. The internal `processingMs` alone does not represent the delay experienced by the user.
+
+The November 10 measurements against the earlier Function App showed cold-start totals of 0.91–1.55 seconds and warm totals of 0.24–0.31 seconds. These results are useful as an initial indication, but they were not measured against the current staging Function App.
+
+The current staging app has `alwaysReady` set to an empty list and uses Flex Consumption. A confirmed cold-start measurement for this app is still needed before drawing a final conclusion about its cold-start impact.
+
+If cold-start delay proves unacceptable, possible mitigations include keeping an instance ready, reducing initialization work and dependencies, or reviewing the hosting and memory configuration. These options should be evaluated against their additional cost and operational complexity. The client can also provide upload progress or a clear loading state while processing takes place.
