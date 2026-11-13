@@ -61,7 +61,7 @@ Image processing runs as an Azure Function (`process-image`) instead of inside t
 | Resource group | `utpost-maria-rios-rg` |
 | Instance memory | 2048 MB |
 | Maximum instances | 10 |
-| Concurrent HTTP requests per instance | 1 |
+| Concurrent HTTP requests per instance | 2 |
 | URL | `https://hasta-la-vue-lta-image-fn.azurewebsites.net/api/process-image` |
 
 The function is created by `infra/azure/skapa-funktion.sh`. The function key is never stored in the repository. It is read at runtime and stored as the Azure Container Apps secret `image-function-key`.
@@ -72,7 +72,7 @@ The first function deployment (`hasta-la-vue-lta-fn`, used for the cold-start me
 
 Flex Consumption allows 16 concurrent HTTP requests per instance by default. The function does CPU work in Node.js, which has one thread, so 16 requests on one instance would still run one at a time.
 
-The setting `perInstanceConcurrency=1` gives each simultaneous request its own instance. This is the scale-out behaviour we want to measure. An I/O-heavy API would use a higher value.
+The setting `perInstanceConcurrency=2` allows up to two concurrent HTTP requests per instance. This was the setting used for the confirmed cold-start measurement. A lower concurrency value can encourage scale-out, while a higher value can allow more requests to share an instance.
 
 ## Cold-start measurement
 
@@ -211,6 +211,21 @@ Cold-start impact should be evaluated using the total image-upload request time 
 
 The November 10 measurements against the earlier Function App showed cold-start totals of 0.91–1.55 seconds and warm totals of 0.24–0.31 seconds. These results are useful as an initial indication, but they were not measured against the current staging Function App.
 
-The current staging app has `alwaysReady` set to an empty list and uses Flex Consumption. A confirmed cold-start measurement for this app is still needed before drawing a final conclusion about its cold-start impact.
+The current staging app has `alwaysReady` set to an empty list and uses Flex Consumption. A confirmed cold-start measurement was completed against the current staging Function App on November 13. The first request took 1.045 seconds and the second warm request took 0.229 seconds. This confirms that the cold-start behaviour is measurable and that the warm response is substantially faster.
 
 If cold-start delay proves unacceptable, possible mitigations include keeping an instance ready, reducing initialization work and dependencies, or reviewing the hosting and memory configuration. These options should be evaluated against their additional cost and operational complexity. The client can also provide upload progress or a clear loading state while processing takes place.
+
+### Confirmed measurement on the current Function App (13 November 2026)
+
+After 25 minutes of inactivity, two consecutive authenticated requests were sent to the current Function App, `hasta-la-vue-lta-image-fn`, in `swedencentral`.
+
+| Metric | First request | Second request |
+|---|---:|---:|
+| `coldStart` | `true` | `false` |
+| Total response time | 1,045 ms | 229 ms |
+| `processingMs` | 93 ms | 65 ms |
+| Instance ID | Same | Same |
+
+Both requests were handled by instance `2--1c1400c8-78c6-4c6b-8a3b-091382871251`.
+
+The measurement confirms that the first request was a cold start and the second request was handled by the already-warm process. The HTTP per-instance concurrency was configured to 2 for this test.
