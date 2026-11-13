@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { processImageHandler } from './process-image.js';
+import { processImageHandler } from '../src/process-image.js';
 
 const request = {
   async json() {

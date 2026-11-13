@@ -292,6 +292,7 @@ jobs:
           app-name: ${{ vars.AZURE_FUNCTION_APP }}
           package: functions
           sku: flexconsumption
+          respect-funcignore: true
 
       - name: Fetch function key and URL
         run: |
