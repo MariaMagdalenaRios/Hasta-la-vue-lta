@@ -1,87 +1,66 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { setActivePinia, createPinia } from 'pinia'
-import { createRouter, createMemoryHistory } from 'vue-router'
-import { useSessionStore } from '../stores/session'
+import { render, screen } from '@testing-library/vue'
+import userEvent from '@testing-library/user-event'
+import { createPinia, setActivePinia } from 'pinia'
 import LoginView from './LoginView.vue'
+import { post } from '../api'
+import { getToken } from '../lib/token'
+import { useAuthStore } from '../stores/auth'
 
-const router = createRouter({
-  history: createMemoryHistory(),
-  routes: [
-    { path: '/', component: { template: '<div>Home</div>' } },
-    { path: '/login', component: LoginView },
-  ],
-})
+vi.mock('../api', () => ({ post: vi.fn() }))
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push }),
+  useRoute: () => ({ query: { till: '/turer/1/bild' } }),
+}))
+const mockedPost = vi.mocked(post)
 
-const mockUser = {
-  id: 1,
-  email: 'negar@test.com',
-  display_name: 'Negar',
-  role: 'user',
-  created_at: '2026-01-01T00:00:00.000Z',
+const fillAndSubmit = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.type(screen.getByLabelText('E-post'), 'anna@example.com')
+  await user.type(screen.getByLabelText('Lösenord'), 'hemligt123')
+  await user.click(screen.getByRole('button', { name: 'Logga in' }))
 }
 
-const mountLoginView = () =>
-  mount(LoginView, {
-    global: {
-      plugins: [router],
-    },
-  })
-
-describe('LoginView', () => {
+describe('LoginView (M8)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.restoreAllMocks()
+    useAuthStore().logout()
+    push.mockClear()
   })
 
-  it('renders email and password inputs and a submit button', () => {
-    const wrapper = mountLoginView()
-    expect(wrapper.find('input[type="email"]').exists()).toBe(true)
-    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
-    expect(wrapper.find('button[type="submit"]').exists()).toBe(true)
+  it('fel uppgifter: API:ets felsvar visas som alert, ingen token sparas', async () => {
+    mockedPost.mockResolvedValue({ error: 'fel e-post eller lösenord' })
+    const user = userEvent.setup()
+    render(LoginView)
+    await fillAndSubmit(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('fel e-post eller lösenord')
+    expect(getToken()).toBeNull()
+    expect(push).not.toHaveBeenCalled()
   })
 
-  it('shows an error message when login fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: vi.fn().mockResolvedValue({ error: 'Ogiltiga uppgifter' }),
-      }),
-    )
+  it('rätt uppgifter: token hamnar i minnet, aldrig i localStorage, och vi skickas dit vi var på väg', async () => {
+    mockedPost.mockResolvedValue({
+      token: 'jwt-fran-api',
+      user: {
+        id: 1,
+        email: 'anna@example.com',
+        display_name: 'Anna',
+        role: 'member',
+        created_at: '',
+      },
+    })
+    const user = userEvent.setup()
+    render(LoginView)
+    await fillAndSubmit(user)
 
-    const wrapper = mountLoginView()
-    await wrapper.find('input[type="email"]').setValue('wrong@test.com')
-    await wrapper.find('input[type="password"]').setValue('wrongpass')
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Ogiltiga uppgifter')
-  })
-
-  it('calls session.login with user and token on successful login', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ user: mockUser, token: 'abc123' }),
-      }),
-    )
-
-    const wrapper = mountLoginView()
-    await wrapper.find('input[type="email"]').setValue('negar@test.com')
-    await wrapper.find('input[type="password"]').setValue('correctpass')
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
-
-    const session = useSessionStore()
-    expect(session.isLoggedIn).toBe(true)
-    expect(session.user).toEqual(mockUser)
-    expect(session.token).toBe('abc123')
-  })
-
-  it('does not show an error message on initial render', () => {
-    const wrapper = mountLoginView()
-    expect(wrapper.find('.error').exists()).toBe(false)
+    expect(mockedPost).toHaveBeenCalledWith('/auth/login', {
+      email: 'anna@example.com',
+      password: 'hemligt123',
+    })
+    expect(getToken()).toBe('jwt-fran-api')
+    expect(useAuthStore().user?.display_name).toBe('Anna')
+    expect(localStorage.length).toBe(0)
+    expect(push).toHaveBeenCalledWith('/turer/1/bild')
   })
 })
