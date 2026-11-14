@@ -1,5 +1,6 @@
 import { pool } from './client.js';
 import { createTables } from './migrate.js';
+import { hashPassword } from '../lib/password.js';
 
 const REGIONS = ['Jämtland', 'Dalarna', 'Lappland', 'Bohuslän', 'Småland', 'Södermanland', 'Härjedalen', 'Skåne'];
 const DIFFICULTY = ['lätt', 'medel', 'svår'];
@@ -31,13 +32,20 @@ export const seedDatabase = async () => {
     return;
   }
 
+  // M8: lösenord lagras som scrypt:<salt>:<hash> (lib/password.js), aldrig i klartext.
+  // Två fasta testkonton, resten slumpas. Lösenordet är hemligt123 för alla:
+  //   redaktor@utpost.se – role editor (id 1)
+  //   medlem@utpost.se   – role member (id 2)
   const userIds = [];
   for (let i = 0; i < 12; i++) {
-    const name = `${pick(FIRST)} ${pick(LAST)}`;
-    const email = `${name.toLowerCase().replace(' ', '.')}${i}@example.com`;
+    const name = i === 0 ? 'Redaktör Test' : i === 1 ? 'Medlem Test' : `${pick(FIRST)} ${pick(LAST)}`;
+    const email =
+      i === 0 ? 'redaktor@utpost.se' : i === 1 ? 'medlem@utpost.se' : `${name.toLowerCase().replace(' ', '.')}${i}@example.com`;
+    // Ett nytt salt per användare, så samma lösenord ger olika hash.
+    const passwordHash = await hashPassword('hemligt123');
     const res = await pool.query(
       `insert into users (email, password_hash, display_name, role) values ($1,$2,$3,$4) returning id`,
-      [email, 'plaintext:hemligt123', name, i === 0 ? 'editor' : 'member'],
+      [email, passwordHash, name, i === 0 ? 'editor' : 'member'],
     );
     userIds.push(res.rows[0].id);
   }

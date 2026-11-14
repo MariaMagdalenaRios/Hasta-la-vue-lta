@@ -64,10 +64,10 @@ jobs:
         with:
           name: client-dist
           path: client/dist
+
   integration:
     name: Integration
     runs-on: ubuntu-latest
-
     services:
       postgres:
         image: postgres:16
@@ -121,6 +121,68 @@ jobs:
 
       - name: Run API integration tests
         run: npm run test:api
+
+  security:
+    name: Säkerhet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Beroenden – npm audit (bara det som körs i produktion, high och critical)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Trivy mot repot: package-lock.json (sårbarheter), alla filer (hemligheter – nycklar, tokens,
+      # anslutningssträngar som råkat committas) och Dockerfiles (misconfig: root-användare, saknad HEALTHCHECK …).
+      # .trivyignore listar de fynd vi medvetet låter vara, med motivering.
+      - name: Repot – Trivy (beroenden, hemligheter, Dockerfiles)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      # Hela appen startas som i compose – det är den ZAP ska anropa, och api-imagen som Trivy ska skanna.
+      - name: Bygg imagerna och starta appen (compose)
+        run: docker compose up -d --build --wait
+
+      - name: "Imagen – Trivy (api-imagen: Alpine-paket, Node, npm-paket)"
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: utpost-api
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      # ZAP baseline: spindlar sidan en minut och kör de passiva reglerna på varje svar.
+      # Vilka regler som gör jobbet rött står i .zap/rules.tsv (FAIL/WARN/IGNORE). Rapporten laddas
+      # upp som artefakt. Appen svarar på localhost:3001 – nginx i client-containern, precis som i compose
+      # (actionen kör ZAP-containern med --network host, så localhost är runnern).
+      # -a: även alpha-reglerna. -I: en WARN ger inte felkod – utan -I ger ZAP exit 2 på varje WARN, och
+      # actionen räknar exit 2 som fel när fail_action är true. FAIL-regler ger exit 1 och stoppar fortfarande.
+      - name: Appen – ZAP baseline (DAST) mot den körande appen
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: "http://localhost:3001"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -I"
+          fail_action: true
+          allow_issue_writing: false
+          artifact_name: zap-rapport
+
+      - name: Loggar från appen (bara om något gick fel)
+        if: failure()
+        run: docker compose logs --tail 50 api client
 
   image:
     name: Image
