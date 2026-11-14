@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client.js';
-import { requireUser } from '../lib/auth.js';
+import { requireUser, publicUser } from '../lib/auth.js';
 
 export const toursRouter = Router();
 
@@ -15,7 +15,8 @@ toursRouter.get('/', async (req, res) => {
       : { rows: [] };
     const photos = await pool.query('select * from photos where tour_id = $1', [tour.id]);
     const logs = await pool.query('select * from tour_logs where tour_id = $1 order by recorded_at', [tour.id]);
-    out.push({ ...tour, user: user.rows[0], guide: guide.rows[0] || null, photos: photos.rows, logs: logs.rows });
+    // M8: publicUser – raden innehåller password_hash och får aldrig skickas ut.
+    out.push({ ...tour, user: user.rows[0] ? publicUser(user.rows[0]) : null, guide: guide.rows[0] || null, photos: photos.rows, logs: logs.rows });
   }
 
   res.json(out);

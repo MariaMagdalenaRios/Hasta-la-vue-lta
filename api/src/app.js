@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { ZodError } from 'zod';
 import { config } from './config.js';
 import { authRouter } from './routes/auth.js';
 import { guidesRouter } from './routes/guides.ts';
@@ -50,6 +51,18 @@ app.use('/api/auth', authRouter);
 app.use('/api/guides', guidesRouter);
 app.use('/api/tours', toursRouter);
 app.use('/api/photos', photosRouter);
+
+// Felhanterare (fyra argument). validate() i lib/validate.js skickar ZodError hit: 400 med vad
+// som var fel, fält för fält. Övriga fel går vidare till Express standardhantering.
+app.use((err, req, res, next) => {
+  if (err instanceof ZodError) {
+    return res.status(400).json({
+      error: 'ogiltig indata',
+      issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  next(err);
+});
 
 
 export { app };
