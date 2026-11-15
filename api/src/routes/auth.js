@@ -1,6 +1,10 @@
+
 import { Router } from 'express';
 import { pool } from '../db/client.js';
 import { sign } from '../lib/auth.js';
+import { validate } from '../lib/validate.js';
+import { loginSchema, registerSchema } from '../lib/schemas.js';
+import { wrap } from '../lib/wrap.js';
 
 export const authRouter = Router();
 
@@ -12,7 +16,7 @@ const toPublicUser = (user) => ({
   created_at: user.created_at,
 });
 
-authRouter.post('/login', async (req, res) => {
+authRouter.post('/login', validate(loginSchema), wrap(async (req, res) => {
   const { email, password } = req.body;
   const result = await pool.query('select * from users where email = $1', [email]);
   const user = result.rows[0];
@@ -21,13 +25,13 @@ authRouter.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'fel uppgifter' });
   }
   res.json({ token: sign(user), user: toPublicUser(user) });
-});
+}));
 
-authRouter.post('/register', async (req, res) => {
+authRouter.post('/register', validate(registerSchema), wrap(async (req, res) => {
   const { email, password, displayName } = req.body;
   const result = await pool.query(
     'insert into users (email, password_hash, display_name) values ($1,$2,$3) returning *',
     [email, `plaintext:${password}`, displayName],
   );
   res.json({ token: sign(result.rows[0]), user: toPublicUser(result.rows[0]) });
-});
+}));

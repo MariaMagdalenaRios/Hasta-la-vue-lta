@@ -2,10 +2,13 @@
 import { Router } from 'express';
 import { pool } from '../db/client.js';
 import { config } from '../config.js';
+import { validate } from '../lib/validate.js';
+import { photoUploadSchema } from '../lib/schemas.js';
+import { wrap } from '../lib/wrap.js';
 
 export const photosRouter = Router();
 
-photosRouter.post('/', async (req, res) => {
+photosRouter.post('/', validate(photoUploadSchema), wrap(async (req, res) => {
   const apiStarted = Date.now();
   const { tourId, filename, width, height } = req.body;
 
@@ -58,13 +61,13 @@ photosRouter.post('/', async (req, res) => {
     instance: processed.instance,
     apiMs: Date.now() - apiStarted,
   });
-});
+}));
 
-photosRouter.get('/tour/:tourId', async (req, res) => {
+photosRouter.get('/tour/:tourId', wrap(async (req, res) => {
   const result = await pool.query(
     'select * from photos where tour_id = $1',
     [req.params.tourId],
   );
 
   res.json(result.rows);
-});
+}));
