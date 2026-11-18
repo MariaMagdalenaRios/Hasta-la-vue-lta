@@ -116,7 +116,6 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
   });
 
   // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-
   it.fails('en medlem kan inte ta bort någon annans tur (403)', async () => {
     const tour = (await pool.query('select id, user_id from tours where id = 1')).rows[0];
     // en annan medlem än turens ägare (och inte redaktör)
@@ -140,7 +139,6 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
   });
 
   // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-
   it.fails('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
     const res = await api('/api/photos', {
       method: 'POST',
@@ -151,8 +149,7 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
 });
 
 describe('A05 Injection – sökningen', () => {
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-  it.fails("ett citattecken i sökordet ger 200 och en tom lista, inte 500", async () => {
+  it("ett citattecken i sökordet ger 200 och en tom lista, inte 500", async () => {
     const res = await api(`/api/guides/search?q=${encodeURIComponent("'")}`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
@@ -169,8 +166,7 @@ describe('A05 Injection – sökningen', () => {
 });
 
 describe('Validering av indata – A10 Mishandling of Exceptional Conditions', () => {
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-  it.fails('en bild med orimliga mått stoppas med 400 innan något sparas', async () => {
+  it('en bild med orimliga mått stoppas med 400 innan något sparas', async () => {
     const owner = await userRow(1);
     const before = (await pool.query('select count(*)::int as n from photos')).rows[0].n;
     const res = await api('/api/photos', {
@@ -185,17 +181,13 @@ describe('Validering av indata – A10 Mishandling of Exceptional Conditions', (
     expect(after).toBe(before);
   });
 
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-
-  it.fails('ett id som inte är ett tal ger 400, inte ett ohanterat fel', async () => {
+  it('ett id som inte är ett tal ger 400, inte ett ohanterat fel', async () => {
     const res = await api('/api/tours/abc');
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'ogiltigt id' });
   });
 
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-
-  it.fails('trasig JSON ger 400 med ett svar – inte ett anrop som hänger', async () => {
+  it('trasig JSON ger 400 med ett svar – inte ett anrop som hänger', async () => {
     const res = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
