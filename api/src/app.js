@@ -19,7 +19,7 @@ if (!config.jwtSecret) {
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '1mb' }));
 // GraphQL endpoint
 app.use(yoga.graphqlEndpoint, yoga);
 app.get('/api/health', async (req, res) => {
@@ -53,7 +53,7 @@ app.use('/api/tours', toursRouter);
 app.use('/api/photos', photosRouter);
 
 // Felhanterare (fyra argument). validate() i lib/validate.js skickar ZodError hit: 400 med vad
-// som var fel, fält för fält. Övriga fel går vidare till Express standardhantering.
+// som var fel, fält för fält. Alltid JSON, och inga interna fel i svaret.
 app.use((err, req, res, next) => {
   if (err instanceof ZodError) {
     return res.status(400).json({
@@ -61,9 +61,11 @@ app.use((err, req, res, next) => {
       issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
     });
   }
-  next(err);
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'ogiltig JSON' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'för stor begäran' });
+  console.error('Oväntat API-fel:', err);
+  res.status(500).json({ error: 'internt serverfel' });
 });
-
 
 export { app };
 

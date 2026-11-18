@@ -1,10 +1,22 @@
 import { Router } from 'express';
 import { pool } from '../db/client.js';
 import { requireUser, publicUser } from '../lib/auth.js';
+import { validate } from '../lib/validate.js';
+import { createTourSchema, idParam } from '../lib/schemas.js';
+import { wrap } from '../lib/wrap.js';
+import { requireTourAccess } from '../lib/tourAccess.js';
 
 export const toursRouter = Router();
 
-toursRouter.get('/', async (req, res) => {
+// :id i adressen ska vara ett positivt heltal – annars 400, inte ett Postgres-fel som hänger anropet.
+const validateId = (req, res, next) => {
+  const result = idParam.safeParse(req.params.id);
+  if (!result.success) return res.status(400).json({ error: 'ogiltigt id' });
+  req.params.id = String(result.data);
+  next();
+};
+
+toursRouter.get('/', wrap(async (req, res) => {
   const tours = await pool.query('select * from tours order by started_at desc limit 50');
 
   const out = [];
@@ -20,22 +32,22 @@ toursRouter.get('/', async (req, res) => {
   }
 
   res.json(out);
-});
+}));
 
-toursRouter.get('/latest', async (req, res) => {
+toursRouter.get('/latest', wrap(async (req, res) => {
   const result = await pool.query('select * from tours order by started_at desc limit 5');
   res.json(result.rows);
-});
+}));
 
-toursRouter.get('/:id', async (req, res) => {
+toursRouter.get('/:id', validateId, wrap(async (req, res) => {
   const tour = await pool.query('select * from tours where id = $1', [req.params.id]);
   if (!tour.rows[0]) return res.status(404).json({ error: 'hittades inte' });
   const logs = await pool.query('select * from tour_logs where tour_id = $1 order by recorded_at', [req.params.id]);
   const photos = await pool.query('select * from photos where tour_id = $1', [req.params.id]);
   res.json({ ...tour.rows[0], logs: logs.rows, photos: photos.rows });
-});
+}));
 
-toursRouter.post('/', requireUser, async (req, res) => {
+toursRouter.post('/', requireUser, validate(createTourSchema), wrap(async (req, res) => {
   const { title, guideId, startedAt, distanceM, notes } = req.body;
   const result = await pool.query(
     `insert into tours (user_id, guide_id, title, started_at, distance_m, notes)
@@ -43,10 +55,16 @@ toursRouter.post('/', requireUser, async (req, res) => {
     [req.user.id, guideId || null, title, startedAt, distanceM, notes],
   );
   res.json(result.rows[0]);
-});
+}));
 
-toursRouter.delete('/:id', async (req, res) => {
-  await pool.query('delete from tour_logs where tour_id = $1', [req.params.id]);
-  await pool.query('delete from tours where id = $1', [req.params.id]);
-  res.json({ ok: true });
-});
+toursRouter.delete(
+  '/:id',
+  requireUser,
+  validateId,
+  requireTourAccess((req) => req.params.id),
+  wrap(async (req, res) => {
+    await pool.query('delete from tour_logs where tour_id = $1', [req.params.id]);
+    await pool.query('delete from tours where id = $1', [req.params.id]);
+    res.json({ ok: true });
+  }),
+);
