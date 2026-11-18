@@ -1,46 +1,72 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useSessionStore } from '../stores/session'
+import { useRouter, useRoute } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
+const router = useRouter()
+const route = useRoute()
 
 const email = ref('')
 const password = ref('')
 const error = ref<string | null>(null)
+const busy = ref(false)
 
-const router = useRouter()
-const session = useSessionStore()
+// Efter inloggning: tillbaka dit användaren var på väg (?till=/turer/1/bild), annars startsidan.
+// Bara relativa adresser – en "till" som pekar på en annan sajt ignoreras (open redirect).
+const next = () => {
+  const till = route.query.till
+  return typeof till === 'string' && till.startsWith('/') && !till.startsWith('//') ? till : '/'
+}
 
-async function submit(e: Event) {
-  e.preventDefault()
+const submit = async () => {
   error.value = null
-
-  const res = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value, password: password.value }),
-  })
-
-  const data = await res.json()
-
-  if (!res.ok) {
-    error.value = data.error ?? 'Något gick fel'
-    return
+  busy.value = true
+  try {
+    await auth.login({ email: email.value, password: password.value })
+    router.push(next())
+  } catch (err) {
+    error.value = (err as Error).message
+  } finally {
+    busy.value = false
   }
-
-  session.login(data.user, data.token)
-  router.push('/')
 }
 </script>
 
 <template>
-  <form class="login" @submit="submit">
+  <div class="login">
     <h1>Logga in</h1>
-
-    <input v-model="email" type="email" placeholder="E-post" required />
-    <input v-model="password" type="password" placeholder="Lösenord" required />
-
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <button type="submit" class="button-blue">Logga in</button>
-  </form>
+    <form @submit.prevent="submit">
+      <label>
+        E-post
+        <input v-model="email" type="email" autocomplete="username" required />
+      </label>
+      <label>
+        Lösenord
+        <input v-model="password" type="password" autocomplete="current-password" required />
+      </label>
+      <p v-if="error" role="alert">{{ error }}</p>
+      <button type="submit" :disabled="busy">Logga in</button>
+    </form>
+  </div>
 </template>
+
+<style scoped>
+.login {
+  max-width: 360px;
+}
+label {
+  display: block;
+  margin: 12px 0;
+}
+input {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  margin-top: 4px;
+}
+button {
+  padding: 8px 16px;
+}
+</style>
