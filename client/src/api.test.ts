@@ -18,7 +18,7 @@ describe('get', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(get('/guides')).resolves.toEqual([{ id: 1, slug: 'kebnekaise' }])
-    expect(fetchMock).toHaveBeenCalledWith(`${API_URL}/guides`)
+    expect(fetchMock).toHaveBeenCalledWith(`${API_URL}/guides`, { headers: {} })
   })
 
   it('throws with the status code when the API answers with an error', async () => {

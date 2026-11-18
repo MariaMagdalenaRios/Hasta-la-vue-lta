@@ -35,7 +35,9 @@ describe('GuideDetailView', () => {
     await renderView()
 
     await screen.findByRole('heading', { name: 'Kebnekaise' })
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/guides\/kebnekaise$/))
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/guides\/kebnekaise$/), {
+      headers: {},
+    })
     expect(screen.getByText('Lappland · medel · 12 km')).toBeInTheDocument()
     expect(screen.getByText('Sveriges tak')).toBeInTheDocument()
   })

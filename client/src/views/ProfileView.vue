@@ -3,35 +3,35 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Tour } from '@utpost/shared'
 import { get } from '../api'
-import { useSessionStore } from '../stores/session'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
-const session = useSessionStore()
+const auth = useAuthStore()
 const tours = ref<Tour[]>([])
 const error = ref<string | null>(null)
 
 // Same approach as the old React page: fetch all tours and keep the user's own (debt item 10).
 onMounted(async () => {
-  if (!session.user) return
+  if (!auth.user) return
   try {
     const all = await get<Tour[]>('/tours')
-    tours.value = all.filter((t) => t.user_id === session.user?.id)
+    tours.value = all.filter((t) => t.user_id === auth.user?.id)
   } catch (err) {
     error.value = (err as Error).message
   }
 })
 
 function logout() {
-  session.logout()
+  auth.logout()
   router.push('/')
 }
 </script>
 
 <template>
-  <p v-if="!session.user">Du är inte inloggad.</p>
+  <p v-if="!auth.user">Du är inte inloggad.</p>
   <div v-else>
-    <h1>{{ session.user.display_name }}</h1>
-    <p class="muted">{{ session.user.email }} · {{ session.user.role }}</p>
+    <h1>{{ auth.user.display_name }}</h1>
+    <p class="muted">{{ auth.user.email }} · {{ auth.user.role }}</p>
     <h2>Mina turer ({{ tours.length }})</h2>
     <p v-if="error" role="alert">{{ error }}</p>
     <ul>
