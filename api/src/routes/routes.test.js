@@ -107,16 +107,14 @@ describe('A07 Authentication Failures – inloggningen', () => {
 });
 
 describe('A01 Broken Access Control – vems tur är det?', () => {
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-  it.fails('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
+  it('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
     const res = await api('/api/tours/1', { method: 'DELETE' });
     expect(res.status).toBe(401);
     const { rows } = await pool.query('select id from tours where id = 1');
     expect(rows).toHaveLength(1);
   });
 
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-  it.fails('en medlem kan inte ta bort någon annans tur (403)', async () => {
+  it('en medlem kan inte ta bort någon annans tur (403)', async () => {
     const tour = (await pool.query('select id, user_id from tours where id = 1')).rows[0];
     // en annan medlem än turens ägare (och inte redaktör)
     const other = (
@@ -138,13 +136,64 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
     expect((await pool.query('select id from tours where id = $1', [created.rows[0].id])).rows).toHaveLength(0);
   });
 
-  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
-  it.fails('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
+  it('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
     const res = await api('/api/photos', {
       method: 'POST',
       body: { tourId: 1, filename: 'fjall.jpg', width: 4000, height: 3000 },
     });
     expect(res.status).toBe(401);
+  });
+
+  it('DELETE på en tur som inte finns ger 404', async () => {
+    const owner = await userRow(1);
+    const res = await api('/api/tours/999999', { method: 'DELETE', token: sign(owner) });
+    expect(res.status).toBe(404);
+  });
+
+  it('en redaktör kan ta bort någon annans tur', async () => {
+    const editor = (await pool.query("select id, email, role from users where role = 'editor' limit 1")).rows[0];
+    const member = (await pool.query("select id from users where role = 'member' limit 1")).rows[0];
+    const created = await pool.query(
+      `insert into tours (user_id, title, started_at, distance_m) values ($1, 'Testtur redaktör', now(), 100) returning id`,
+      [member.id],
+    );
+    const res = await api(`/api/tours/${created.rows[0].id}`, { method: 'DELETE', token: sign(editor) });
+    expect(res.status).toBe(200);
+    expect((await pool.query('select id from tours where id = $1', [created.rows[0].id])).rows).toHaveLength(0);
+  });
+
+  it('POST /api/photos för någon annans tur ger 403', async () => {
+    const tour = (await pool.query('select id, user_id from tours where id = 1')).rows[0];
+    const other = (
+      await pool.query("select id, email, role from users where id <> $1 and role = 'member' limit 1", [tour.user_id])
+    ).rows[0];
+    const res = await api('/api/photos', {
+      method: 'POST',
+      token: sign(other),
+      body: { tourId: tour.id, filename: 'fjall.jpg', width: 4000, height: 3000 },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /api/photos för en tur som inte finns ger 404', async () => {
+    const owner = await userRow(1);
+    const res = await api('/api/photos', {
+      method: 'POST',
+      token: sign(owner),
+      body: { tourId: 999999, filename: 'fjall.jpg', width: 4000, height: 3000 },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /api/guides/:id utan token ger 401, som medlem 403', async () => {
+    const guide = (await pool.query('select id, title from guides limit 1')).rows[0];
+    const body = { title: 'Hackad', region: 'x', difficulty: 'lätt', lengthKm: 1, bodyHtml: '', published: true };
+    const utan = await api(`/api/guides/${guide.id}`, { method: 'PUT', body });
+    expect(utan.status).toBe(401);
+    const member = (await pool.query("select id, email, role from users where role = 'member' limit 1")).rows[0];
+    const medlem = await api(`/api/guides/${guide.id}`, { method: 'PUT', body, token: sign(member) });
+    expect(medlem.status).toBe(403);
+    expect((await pool.query('select title from guides where id = $1', [guide.id])).rows[0].title).toBe(guide.title);
   });
 });
 

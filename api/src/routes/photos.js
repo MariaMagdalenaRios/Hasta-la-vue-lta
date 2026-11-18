@@ -4,63 +4,71 @@ import { config } from '../config.js';
 import { validate } from '../lib/validate.js';
 import { photoUploadSchema } from '../lib/schemas.js';
 import { wrap } from '../lib/wrap.js';
+import { requireUser } from '../lib/auth.js';
+import { requireTourAccess } from '../lib/tourAccess.js';
 
 export const photosRouter = Router();
 
-photosRouter.post('/', validate(photoUploadSchema), wrap(async (req, res) => {
-  const apiStarted = Date.now();
-  const { tourId, filename, width, height } = req.body;
+photosRouter.post(
+  '/',
+  requireUser,
+  validate(photoUploadSchema),
+  requireTourAccess((req) => req.body.tourId),
+  wrap(async (req, res) => {
+    const apiStarted = Date.now();
+    const { tourId, filename, width, height } = req.body;
 
-  if (!config.imageFunctionUrl) {
-    return res.status(502).json({
-      error: 'IMAGE_FUNCTION_URL is not configured',
-    });
-  }
-
-  let processed;
-
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (config.imageFunctionKey) {
-      headers['x-functions-key'] = config.imageFunctionKey;
+    if (!config.imageFunctionUrl) {
+      return res.status(502).json({
+        error: 'IMAGE_FUNCTION_URL is not configured',
+      });
     }
 
-    const response = await fetch(config.imageFunctionUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ filename, width, height }),
-    });
+    let processed;
 
-    if (!response.ok) {
-      throw new Error(`Image Function returned ${response.status}`);
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+
+      if (config.imageFunctionKey) {
+        headers['x-functions-key'] = config.imageFunctionKey;
+      }
+
+      const response = await fetch(config.imageFunctionUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ filename, width, height }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Image Function returned ${response.status}`);
+      }
+
+      processed = await response.json();
+    } catch (error) {
+      console.error('Image processing failed:', error);
+
+      return res.status(502).json({
+        error: 'Image processing failed',
+      });
     }
 
-    processed = await response.json();
-  } catch (error) {
-    console.error('Image processing failed:', error);
+    const result = await pool.query(
+      'insert into photos (tour_id, filename, width, height) values ($1,$2,$3,$4) returning *',
+      [tourId, filename, width, height],
+    );
 
-    return res.status(502).json({
-      error: 'Image processing failed',
+    res.json({
+      ...result.rows[0],
+      variants: processed.variants,
+      processingMs: processed.processingMs,
+      coldStart: processed.coldStart,
+      instance: processed.instance,
+      apiMs: Date.now() - apiStarted,
     });
-  }
-
-  const result = await pool.query(
-    'insert into photos (tour_id, filename, width, height) values ($1,$2,$3,$4) returning *',
-    [tourId, filename, width, height],
-  );
-
-  res.json({
-    ...result.rows[0],
-    variants: processed.variants,
-    processingMs: processed.processingMs,
-    coldStart: processed.coldStart,
-    instance: processed.instance,
-    apiMs: Date.now() - apiStarted,
-  });
-}));
+  }),
+);
 
 photosRouter.get('/tour/:tourId', wrap(async (req, res) => {
   const result = await pool.query(

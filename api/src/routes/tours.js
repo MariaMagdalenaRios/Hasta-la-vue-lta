@@ -4,6 +4,7 @@ import { requireUser, publicUser } from '../lib/auth.js';
 import { validate } from '../lib/validate.js';
 import { createTourSchema, idParam } from '../lib/schemas.js';
 import { wrap } from '../lib/wrap.js';
+import { requireTourAccess } from '../lib/tourAccess.js';
 
 export const toursRouter = Router();
 
@@ -56,8 +57,14 @@ toursRouter.post('/', requireUser, validate(createTourSchema), wrap(async (req, 
   res.json(result.rows[0]);
 }));
 
-toursRouter.delete('/:id', validateId, wrap(async (req, res) => {
-  await pool.query('delete from tour_logs where tour_id = $1', [req.params.id]);
-  await pool.query('delete from tours where id = $1', [req.params.id]);
-  res.json({ ok: true });
-}));
+toursRouter.delete(
+  '/:id',
+  requireUser,
+  validateId,
+  requireTourAccess((req) => req.params.id),
+  wrap(async (req, res) => {
+    await pool.query('delete from tour_logs where tour_id = $1', [req.params.id]);
+    await pool.query('delete from tours where id = $1', [req.params.id]);
+    res.json({ ok: true });
+  }),
+);
