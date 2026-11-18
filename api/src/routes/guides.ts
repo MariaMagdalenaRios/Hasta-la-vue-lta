@@ -5,6 +5,7 @@ import { pool } from "../db/client.js";
 import { validate } from "../lib/validate.js";
 import { searchSchema } from "../lib/schemas.js";
 import { wrap } from "../lib/wrap.js";
+import { requireUser, requireRole } from "../lib/auth.js";
 
 export const guidesRouter = Router();
 
@@ -51,12 +52,19 @@ guidesRouter.get("/:slug", wrap(async (req: Request, res: Response) => {
   res.json(result.rows[0]);
 }));
 
-guidesRouter.put("/:id", wrap(async (req: Request, res: Response) => {
-  const { title, region, difficulty, lengthKm, bodyHtml, published } = req.body;
-  const result = await pool.query(
-    `update guides set title=$1, region=$2, difficulty=$3, length_km=$4, body_html=$5,
-     published=$6, updated_at=now() where id=$7 returning *`,
-    [title, region, difficulty, lengthKm, bodyHtml, published, req.params.id],
-  );
-  res.json(result.rows[0]);
-}));
+// Redigering är redaktionens: inloggning (401) och rollen editor (403) kontrolleras innan routen körs.
+guidesRouter.put(
+  "/:id",
+  requireUser,
+  requireRole("editor"),
+  wrap(async (req: Request, res: Response) => {
+    const { title, region, difficulty, lengthKm, bodyHtml, published } = req.body;
+    const result = await pool.query(
+      `update guides set title=$1, region=$2, difficulty=$3, length_km=$4, body_html=$5,
+       published=$6, updated_at=now() where id=$7 returning *`,
+      [title, region, difficulty, lengthKm, bodyHtml, published, req.params.id],
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "hittades inte" });
+    res.json(result.rows[0]);
+  }),
+);
