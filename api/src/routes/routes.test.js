@@ -32,6 +32,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Hängande anrop (hål A05/A10) håller annars servern öppen så att afterAll får timeout.
+  server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
   await pool.end();
   await mongo.close();
@@ -105,14 +107,17 @@ describe('A07 Authentication Failures – inloggningen', () => {
 });
 
 describe('A01 Broken Access Control – vems tur är det?', () => {
-  it('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
     const res = await api('/api/tours/1', { method: 'DELETE' });
     expect(res.status).toBe(401);
     const { rows } = await pool.query('select id from tours where id = 1');
     expect(rows).toHaveLength(1);
   });
 
-  it('en medlem kan inte ta bort någon annans tur (403)', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+
+  it.fails('en medlem kan inte ta bort någon annans tur (403)', async () => {
     const tour = (await pool.query('select id, user_id from tours where id = 1')).rows[0];
     // en annan medlem än turens ägare (och inte redaktör)
     const other = (
@@ -134,7 +139,9 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
     expect((await pool.query('select id from tours where id = $1', [created.rows[0].id])).rows).toHaveLength(0);
   });
 
-  it('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+
+  it.fails('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
     const res = await api('/api/photos', {
       method: 'POST',
       body: { tourId: 1, filename: 'fjall.jpg', width: 4000, height: 3000 },
@@ -144,7 +151,8 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
 });
 
 describe('A05 Injection – sökningen', () => {
-  it("ett citattecken i sökordet ger 200 och en tom lista, inte 500", async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails("ett citattecken i sökordet ger 200 och en tom lista, inte 500", async () => {
     const res = await api(`/api/guides/search?q=${encodeURIComponent("'")}`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
@@ -161,7 +169,8 @@ describe('A05 Injection – sökningen', () => {
 });
 
 describe('Validering av indata – A10 Mishandling of Exceptional Conditions', () => {
-  it('en bild med orimliga mått stoppas med 400 innan något sparas', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails('en bild med orimliga mått stoppas med 400 innan något sparas', async () => {
     const owner = await userRow(1);
     const before = (await pool.query('select count(*)::int as n from photos')).rows[0].n;
     const res = await api('/api/photos', {
@@ -176,13 +185,17 @@ describe('Validering av indata – A10 Mishandling of Exceptional Conditions', (
     expect(after).toBe(before);
   });
 
-  it('ett id som inte är ett tal ger 400, inte ett ohanterat fel', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+
+  it.fails('ett id som inte är ett tal ger 400, inte ett ohanterat fel', async () => {
     const res = await api('/api/tours/abc');
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'ogiltigt id' });
   });
 
-  it('trasig JSON ger 400 med ett svar – inte ett anrop som hänger', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+
+  it.fails('trasig JSON ger 400 med ett svar – inte ett anrop som hänger', async () => {
     const res = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
