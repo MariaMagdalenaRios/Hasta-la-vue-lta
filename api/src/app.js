@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { ZodError } from 'zod';
@@ -17,15 +16,12 @@ if (!config.jwtSecret) {
   );
 }
 
-export const app = express();
+const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
-
 // GraphQL endpoint
 app.use(yoga.graphqlEndpoint, yoga);
-
-// Health endpoint
 app.get('/api/health', async (req, res) => {
   const check = async (fn) => {
     try {
@@ -35,16 +31,13 @@ app.get('/api/health', async (req, res) => {
       return `fel: ${err.message}`;
     }
   };
-
   const postgres = await check(() => pool.query('select 1'));
-
   const mongodb = await check(async () => {
-    await mongo.connect();
+    await mongo.connect(); 
     await mongo.db().command({ ping: 1 });
   });
-
   const ok = postgres === 'ok' && mongodb === 'ok';
-
+  //res.status(ok ? 200 : 503).json({ ok, version: '1.4.2', postgres, mongodb });
   res.status(ok ? 200 : 503).json({
     ok,
     version: '1.4.2',
@@ -59,8 +52,8 @@ app.use('/api/guides', guidesRouter);
 app.use('/api/tours', toursRouter);
 app.use('/api/photos', photosRouter);
 
-// Central felhantering enligt M8 Issue #142.
-// Returnera alltid JSON och avslöja inte interna serverfel.
+// Felhanterare (fyra argument). validate() i lib/validate.js skickar ZodError hit: 400 med vad
+// som var fel, fält för fält. Alltid JSON, och inga interna fel i svaret.
 app.use((err, req, res, next) => {
   if (err instanceof ZodError) {
     return res.status(400).json({
@@ -68,22 +61,16 @@ app.use((err, req, res, next) => {
       issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
     });
   }
-
-  if (err.type === 'entity.parse.failed') {
-    return res.status(400).json({
-      error: 'ogiltig JSON',
-    });
-  }
-
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({
-      error: 'för stor begäran',
-    });
-  }
-
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'ogiltig JSON' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'för stor begäran' });
   console.error('Oväntat API-fel:', err);
+  res.status(500).json({ error: 'internt serverfel' });
+});
 
-  return res.status(500).json({
-    error: 'internt serverfel',
-  });
+export { app };
+
+// Servern dog i produktion en fredag när någon skrev in ett ogiltigt id.
+// Det här håller den vid liv. Anropet får inget svar, men resten funkar. /marcus 2022-09-02
+process.on('unhandledRejection', (err) => {
+  console.error('Ohanterat fel:', err.message);
 });

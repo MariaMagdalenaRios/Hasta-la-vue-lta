@@ -1,7 +1,8 @@
 import { pool } from './client.js';
-import { seedDatabase } from './seed.js';
+import { resetDatabase, seedDatabase } from './seed.js';
 
 try {
+  await resetDatabase();
   await seedDatabase();
 } catch (err) {
   console.error(err);

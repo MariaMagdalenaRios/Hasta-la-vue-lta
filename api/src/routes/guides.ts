@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import type { Request, Response } from "express";
 import type { Guide } from "@utpost/shared";
@@ -45,7 +44,7 @@ guidesRouter.get(
 );
 
 guidesRouter.get("/:slug", wrap(async (req: Request, res: Response) => {
-  const result = await pool.query("select * from guides where slug =$1", [
+  const result = await pool.query("select * from guides where slug = $1", [
     req.params.slug,
   ]);
   if (!result.rows[0]) return res.status(404).json({ error: "hittades inte" });
@@ -53,7 +52,7 @@ guidesRouter.get("/:slug", wrap(async (req: Request, res: Response) => {
 }));
 
 guidesRouter.put("/:id", wrap(async (req: Request, res: Response) => {
-  const { title, region, difficulty, lengthKm, bodyHtml, published }= req.body;
+  const { title, region, difficulty, lengthKm, bodyHtml, published } = req.body;
   const result = await pool.query(
     `update guides set title=$1, region=$2, difficulty=$3, length_km=$4, body_html=$5,
      published=$6, updated_at=now() where id=$7 returning *`,

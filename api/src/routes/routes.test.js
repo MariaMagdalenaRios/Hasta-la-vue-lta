@@ -32,6 +32,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Hängande anrop (hål A05/A10) håller annars servern öppen så att afterAll får timeout.
+  server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
   await pool.end();
   await mongo.close();
@@ -73,17 +75,48 @@ describe('A07 Authentication Failures – inloggningen', () => {
     expect(svar.error).toBe('ogiltig indata');
     expect(svar.issues[0].path).toBe('password');
   });
+
+  it('registrering ger 201 med token, lösenordet sparas hashat och skickas aldrig tillbaka', async () => {
+    const email = `registrering-${Date.now()}@example.com`;
+    try {
+      const res = await api('/api/auth/register', {
+        method: 'POST',
+        body: { email, password: 'langtlosenord123', displayName: 'Ny Medlem' },
+      });
+      expect(res.status).toBe(201);
+      const svar = await res.json();
+      expect(svar.token).toEqual(expect.any(String));
+      expect(svar.user.email).toBe(email);
+      expect(JSON.stringify(svar)).not.toContain('password_hash');
+      expect(JSON.stringify(svar)).not.toContain('langtlosenord123');
+      const { rows } = await pool.query('select password_hash from users where email = $1', [email]);
+      expect(rows[0].password_hash).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
+    } finally {
+      await pool.query('delete from users where email = $1', [email]);
+    }
+  });
+
+  it('registrering med en e-post som redan finns ger 409', async () => {
+    const user = await userRow(1);
+    const res = await api('/api/auth/register', {
+      method: 'POST',
+      body: { email: user.email, password: 'langtlosenord123', displayName: 'Dubblett' },
+    });
+    expect(res.status).toBe(409);
+  });
 });
 
 describe('A01 Broken Access Control – vems tur är det?', () => {
-  it('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails('DELETE /api/tours/:id utan token ger 401 och turen finns kvar', async () => {
     const res = await api('/api/tours/1', { method: 'DELETE' });
     expect(res.status).toBe(401);
     const { rows } = await pool.query('select id from tours where id = 1');
     expect(rows).toHaveLength(1);
   });
 
-  it('en medlem kan inte ta bort någon annans tur (403)', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails('en medlem kan inte ta bort någon annans tur (403)', async () => {
     const tour = (await pool.query('select id, user_id from tours where id = 1')).rows[0];
     // en annan medlem än turens ägare (och inte redaktör)
     const other = (
@@ -105,7 +138,8 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
     expect((await pool.query('select id from tours where id = $1', [created.rows[0].id])).rows).toHaveLength(0);
   });
 
-  it('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
+  // M8 baseline: känt hål, testet är rött tills fixen. Byt till it(...) i fix-PR:en.
+  it.fails('POST /api/photos utan token ger 401 – uppladdning kräver inloggning', async () => {
     const res = await api('/api/photos', {
       method: 'POST',
       body: { tourId: 1, filename: 'fjall.jpg', width: 4000, height: 3000 },

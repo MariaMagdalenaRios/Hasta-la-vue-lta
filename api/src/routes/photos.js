@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import { pool } from '../db/client.js';
 import { config } from '../config.js';
