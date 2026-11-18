@@ -15,32 +15,47 @@
 
 ## Testkörning före fixarna (M8)
 
-Körd 2026-11-14 mot den befintliga koden, med nollställda compose-databaser (Postgres på 5433, Mongo på 27017):
+Körd mot den befintliga koden (branch `m8-sakrad`, inga fixar), med nollställda compose-databaser (Postgres på 5433, Mongo på 27017). Senast körd lokalt 2026-11-18:
 
 ```sh
 docker compose down -v
 docker compose up -d --wait postgres mongo
-npm run seed        # Seed klar: 12 användare, 40 guider, 200 turer, 5739 loggpunkter.
+npm run seed        # Seed klar: 12 användare, 40 guider, 200 turer, 5952 loggpunkter.
 npm run test:api    # Tests  9 failed | 14 passed (23)
 ```
 
-**Resultat:** 23 tester, 9 röda och 14 gröna. Alla röda finns i `api/src/routes/routes.test.js`, där 10 av 13 säkerhetstester är röda. GraphQL-testerna (`server.test.js`) och bildtesterna (`photos.test.js`) är gröna, så databaskopplingen fungerar och de röda testerna beror inte på setup.
+Samma resultat i CI, där jobbet Integration alltid startar med tomma databaser: [körning 43621048897](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43621048897/job/132526585959). Samma 9 tester är röda med samma fel lokalt och i CI.
+
+**Resultat:** 23 tester, 9 röda och 14 gröna. Alla röda finns i `api/src/routes/routes.test.js`, där 9 av 13 säkerhetstester är röda. GraphQL-testerna (`server.test.js`) och bildtesterna (`photos.test.js`) är gröna, så databaskopplingen fungerar och de röda testerna beror inte på setup.
 
 | # | OWASP | Test | Förväntat | Fick | Orsak |
 |---|---|---|---|---|---|
 | 1 | A07 | lösenordet i databasen är hashat, inte klartext | 0 klartext | **12** | Lösenord sparas som `plaintext:…` (`routes/auth.js`) |
 | 2 | A07 | registrering med för kort lösenord ger 400 | 400 | **200** | Ingen validering, så kontot skapas ändå |
 | 3 | A01 | `DELETE /api/tours/:id` utan token ger 401 | 401 | **200** | Ingen `requireUser` på routen (`routes/tours.js:47`). Turen raderades på riktigt. |
-| 4 | A01 | en medlem kan inte ta bort någon annans tur (403) | 403 | TypeError | Följdfel av #3: tur 1 var redan raderad. Det finns heller ingen ägarkontroll. |
+| 4 | A01 | en medlem kan inte ta bort någon annans tur (403) | 403 | TypeError (hela körningen), **200** (ensamt) | Ingen ägarkontroll: en annan medlem kan radera turen. Se förklaringen under tabellen. |
 | 5 | A01 | `POST /api/photos` utan token ger 401 | 401 | **502** | Ingen inloggning krävs (`routes/photos.js:8`). Anropet gick hela vägen till bildfunktionen. |
-| 6 | A05 | ett citattecken i sökordet ger 200 och en tom lista | 200 | **timeout** | Sökordet klistras in i SQL-strängen (`routes/guides.ts:32`). Frågan kraschar och anropet får inget svar. |
+| 6 | A05 | ett citattecken i sökordet ger 200 och en tom lista | 200 | **timeout** | Sökordet klistras in i SQL-strängen (`routes/guides.ts:32`). Frågan kraschar (`operator is not unique: unknown % unknown` i loggen) och anropet får inget svar. |
 | 7 | A10 | en bild med orimliga mått stoppas med 400 | 400 | **502** | Ingen validering av `width`/`height` innan anropet skickas vidare |
-| 8 | A10 | ett id som inte är ett tal ger 400 | 400 | **timeout** | Felet sväljs av `process.on('unhandledRejection')` (`app.js:59`), så anropet hänger |
+| 8 | A10 | ett id som inte är ett tal ger 400 | 400 | **timeout** | Postgres kastar `invalid input syntax for type integer: "abc"`, felet sväljs av `process.on('unhandledRejection')` (`app.js:59`) och anropet hänger |
 | 9 | A10 | trasig JSON ger 400 med ett JSON-svar | 400 + JSON | HTML-sida | Ingen felhanterare, så Express svarar med sin HTML-felsida |
 
 **Gröna redan före fixarna:** svaret på inloggning innehåller inte `password_hash`; fel lösenord och okänd e-post ger samma svar; ägaren kan ta bort sin egen tur; en vanlig sökning fungerar.
 
-**Övrigt i körningen:** `afterAll` i `routes.test.js` får timeout efter 10 s, eftersom de hängande anropen från #6 och #8 håller servern öppen. Det är samma A10-brist. `ECONNREFUSED` från `photos.js` betyder att bildfunktionen inte körs lokalt. Det påverkar inte slutsatsen i #5 och #7, eftersom anropen borde ha stoppats innan de nådde bildfunktionen.
+**Två röda som ser ut som setup-fel men är riktiga hål:**
+
+- **#5 och #7 ger 502, inte ett setup-fel.** 502 betyder att API:et inte nådde bildfunktionen (lokalt `ECONNREFUSED`, i CI är `IMAGE_FUNCTION_URL` inte satt). Men testerna väntar sig 401 och 400, och de svaren ska komma *innan* bildfunktionen anropas. Att anropet alls kom fram till bildfunktionen visar att inloggningskravet och valideringen saknas. Med bildfunktionen igång hade anropen lyckats, och testerna hade fortfarande varit röda. Efter fixen stoppar `requireUser` och `validate()` anropen före routen, så testerna blir gröna utan bildfunktion.
+- **#4 ger TypeError, men hålet är riktigt.** I hela körningen är tur 1 redan borta, eftersom #3 raderade den utan token. Därför blir raden `undefined`. Körs testet ensamt med tur 1 på plats blir det rött av rätt anledning: `expected 200 to be 403`. En annan medlem kan radera turen.
+
+  ```sh
+  npm run test --workspace=api -- src/routes/routes.test.js -t "en medlem kan inte ta bort"
+  # × en medlem kan inte ta bort någon annans tur (403)
+  #   → expected 200 to be 403
+  ```
+
+Att setupen fungerar syns på att GraphQL-testerna och bildtesterna i samma körning är gröna mot samma databaser.
+
+**Övrigt i körningen:** `afterAll` i `routes.test.js` får timeout efter 10 s, eftersom de hängande anropen från #6 och #8 håller servern öppen. Det är samma A10-brist.
 
 ## OWASP Top 10 – genomgång
 
