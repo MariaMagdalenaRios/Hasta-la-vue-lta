@@ -73,6 +73,35 @@ describe('A07 Authentication Failures – inloggningen', () => {
     expect(svar.error).toBe('ogiltig indata');
     expect(svar.issues[0].path).toBe('password');
   });
+
+  it('registrering ger 201 med token, lösenordet sparas hashat och skickas aldrig tillbaka', async () => {
+    const email = `registrering-${Date.now()}@example.com`;
+    try {
+      const res = await api('/api/auth/register', {
+        method: 'POST',
+        body: { email, password: 'langtlosenord123', displayName: 'Ny Medlem' },
+      });
+      expect(res.status).toBe(201);
+      const svar = await res.json();
+      expect(svar.token).toEqual(expect.any(String));
+      expect(svar.user.email).toBe(email);
+      expect(JSON.stringify(svar)).not.toContain('password_hash');
+      expect(JSON.stringify(svar)).not.toContain('langtlosenord123');
+      const { rows } = await pool.query('select password_hash from users where email = $1', [email]);
+      expect(rows[0].password_hash).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
+    } finally {
+      await pool.query('delete from users where email = $1', [email]);
+    }
+  });
+
+  it('registrering med en e-post som redan finns ger 409', async () => {
+    const user = await userRow(1);
+    const res = await api('/api/auth/register', {
+      method: 'POST',
+      body: { email: user.email, password: 'langtlosenord123', displayName: 'Dubblett' },
+    });
+    expect(res.status).toBe(409);
+  });
 });
 
 describe('A01 Broken Access Control – vems tur är det?', () => {

@@ -19,9 +19,13 @@ const bodyHtml = (title, region) => `
 <ul><li>Vindskydd vid halva sträckan</li><li>Ingen service utmed leden</li><li>Mobiltäckning delvis</li></ul>
 <p><em>Senast granskad av redaktionen.</em></p>`.trim();
 
-//const run = async () => {
-//  await createTables();
-//  await pool.query('truncate photos, tour_logs, tours, guides, users restart identity');
+// M8: `npm run seed` tömmer tabellerna först, så att en ny seed alltid ger hashade lösenord och
+// testkontona – även i en databas som seedats med den gamla koden (plaintext:). boot.js använder
+// inte den här, utan seedar bara en tom databas.
+export const resetDatabase = async () => {
+  await createTables();
+  await pool.query('truncate photos, tour_logs, tours, guides, users restart identity cascade');
+};
 
 export const seedDatabase = async () => {
   await createTables();
