@@ -5,7 +5,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import type { Tour, User } from '@utpost/shared'
 import ProfileView from './ProfileView.vue'
-import { useSessionStore } from '../stores/session'
+import { useAuthStore } from '../stores/auth'
+import { setToken } from '../lib/token'
 import { stubFetch } from '../test/fetch'
 
 const user: User = {
@@ -29,7 +30,11 @@ const makeTour = (id: number, user_id: number, title: string): Tour => ({
 const renderView = async (loggedIn: boolean) => {
   const pinia = createPinia()
   setActivePinia(pinia)
-  if (loggedIn) useSessionStore().login(user, 'token')
+  const auth = useAuthStore()
+  if (loggedIn) {
+    auth.user = user
+    setToken('token')
+  }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -46,6 +51,7 @@ const renderView = async (loggedIn: boolean) => {
 
 describe('ProfileView', () => {
   beforeEach(() => {
+    setToken(null)
     stubFetch([makeTour(1, 1, 'Min tur'), makeTour(2, 2, 'Någon annans tur')])
   })
 

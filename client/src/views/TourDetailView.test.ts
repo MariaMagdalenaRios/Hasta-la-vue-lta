@@ -54,7 +54,7 @@ describe('TourDetailView', () => {
       await renderView('/turer/42')
 
       await screen.findByRole('heading', { name: 'Toppturen' })
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/tours\/42$/))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/tours\/42$/), { headers: {} })
     })
 
     it('shows the tour title', async () => {
