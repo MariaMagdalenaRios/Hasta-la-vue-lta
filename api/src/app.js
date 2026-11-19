@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { ZodError } from 'zod';
 import { config } from './config.js';
 import { authRouter } from './routes/auth.js';
@@ -18,7 +17,8 @@ if (!config.jwtSecret) {
 
 const app = express();
 
-app.use(cors());
+// Ingen CORS (A02): webbläsaren pratar med samma origin – Vite-proxyn lokalt, nginx i drift –
+// så ingen annan sajt behöver släppas in. Utan cors()-headers blockerar webbläsaren andra origins.
 app.use(express.json({ limit: '1mb' }));
 // GraphQL endpoint
 app.use(yoga.graphqlEndpoint, yoga);

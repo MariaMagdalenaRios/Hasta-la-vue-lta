@@ -34,6 +34,17 @@ export const photoUploadSchema = z.object({
   height: z.coerce.number().int().min(1).max(20_000),
 });
 
+// PUT /api/guides/:id (M8, A01): alla fält krävs – routen skriver över hela raden. Gränserna är
+// medvetna: titel 120 som för turer, brödtext högst 100 000 tecken, längd 0–1000 km.
+export const guideUpdateSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  region: z.string().trim().min(1).max(80),
+  difficulty: z.string().trim().min(1).max(40),
+  lengthKm: z.coerce.number().min(0).max(1000),
+  bodyHtml: z.string().max(100_000),
+  published: z.boolean(),
+});
+
 // GET /api/guides/search?q=…  – query-strängen är också indata.
 export const searchSchema = z.object({
   q: z.string().trim().max(100).default(''),

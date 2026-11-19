@@ -61,8 +61,8 @@ Att setupen fungerar syns på att GraphQL-testerna och bildtesterna i samma kör
 
 | # | Risk | Gäller oss? | Vad vi hittade (fil, endpoint) | Vad vi gjorde (PR) | Kontroll (testet som var rött före fixen, eller curl) |
 |---|---|---|---|---|---|
-| A01 | Broken Access Control | Ja | `DELETE /api/tours/:id` och `POST /api/photos` utan inloggning, ingen ägarkontroll vid radering, `PUT /api/guides/:id` utan rollen editor | Ej lagat än | Test #3, #4, #5 ovan (röda) |
-| A02 | Security Misconfiguration | Ej undersökt än | | | |
+| A01 | Broken Access Control | Ja | `DELETE /api/tours/:id` och `POST /api/photos` utan inloggning, ingen ägarkontroll vid radering, `PUT /api/guides/:id` utan rollen editor och utan validering av id och body (se [Guideredigeringen](#guideredigeringen-a01-och-a02)) | Guide-endpointen: `requireUser` + `requireRole('editor')` + `idParam` + `guideUpdateSchema` (`routes/guides.ts`, `lib/schemas.js`). Resten ej lagat än. | Guide: test #10–#12 nedan (#11 och #12 röda före fixen). Övrigt: test #3, #4, #5 ovan (röda) |
+| A02 | Security Misconfiguration | Ja | `app.use(cors())` i `app.js` svarade `Access-Control-Allow-Origin: *` till alla origins, även på preflight | Borttagen. Ingen CORS-konfiguration alls: webbläsaren pratar med samma origin via Vite-proxyn (`client/vite.config.js`) och nginx (`client/nginx.conf.template`). | Test #13 och #14 nedan (röda före fixen) |
 | A03 | Software Supply Chain Failures | Ej undersökt än | | | |
 | A04 | Cryptographic Failures | Ja | Lösenord i klartext (`routes/auth.js`) | Ej lagat än | Test #1 (rött) |
 | A05 | Injection | Ja | SQL byggd med strängkonkatenering i `GET /api/guides/search` (`routes/guides.ts:32`) | Ej lagat än | Test #6 (rött) |
@@ -71,6 +71,25 @@ Att setupen fungerar syns på att GraphQL-testerna och bildtesterna i samma kör
 | A08 | Software or Data Integrity Failures | Ej undersökt än | | | |
 | A09 | Security Logging & Alerting Failures | Ej undersökt än | | | |
 | A10 | Mishandling of Exceptional Conditions | Ja | Ingen validering av id, JSON eller bildmått. `unhandledRejection` sväljer fel så att anrop hänger. | Ej lagat än | Test #7, #8, #9 (röda) |
+
+## Guideredigeringen (A01 och A02)
+
+Körd mot `main` efter PR #154, innan guide-fixarna (branch `m8-issue-guide-security`, testerna skrivna först). Resultat: 36 tester, 4 röda och 32 gröna.
+
+| # | OWASP | Test | Förväntat | Före fixen | Orsak |
+|---|---|---|---|---|---|
+| 10 | A01 | `PUT /api/guides/:id` utan token ger 401, som medlem 403, som redaktör 200 | 401 / 403 / 200 | grönt | `requireUser` och `requireRole('editor')` fanns redan på routen när testerna skrevs. Testerna låser skyddet så att det inte kan tas bort. |
+| 11 | A01 | `PUT /api/guides/:id` med ogiltig body ger 400 och guiden är oförändrad | 400 | **500** | Ingen validering: `req.body` gick rakt in i SQL och databasen kastade fel |
+| 12 | A01 | `PUT /api/guides/abc` ger 400 | 400 + `ogiltigt id` | **500** | `req.params.id` kontrollerades inte med `idParam` |
+| – | A01 | `PUT` på en guide som inte finns ger 404 | 404 | grönt | Routen svarade redan 404 när raden saknas |
+| 13 | A02 | en begäran från en okänd origin får inte `Access-Control-Allow-Origin: *` | ingen header | **`*`** | `app.use(cors())` utan inställningar släpper in alla origins |
+| 14 | A02 | preflight (`OPTIONS`) från en okänd origin släpps inte igenom | ingen header | **`*`** | Samma orsak |
+
+**Fixarna:**
+
+- **A01:** `validateId` (med `idParam`) och `validate(guideUpdateSchema)` ligger efter `requireUser` och `requireRole('editor')`, så en obehörig aldrig når valideringen. Ordningen ger 401 före 403 före 400 före 404.
+- **A02:** `cors()` och importen är borttagna från `app.js`. Klienten når API:et på samma origin (Vite-proxy lokalt, nginx i drift), så ingen CORS behövs. Ett anrop från en annan sajts JavaScript blockeras av webbläsaren, eftersom svaret saknar `Access-Control-Allow-Origin`.
+- Kvar att städa: paketet `cors` står fortfarande i `api/package.json` men används inte.
 
 ## Validering av indata
 

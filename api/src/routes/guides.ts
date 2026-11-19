@@ -1,9 +1,9 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import type { Guide } from "@utpost/shared";
 import { pool } from "../db/client.js";
 import { validate } from "../lib/validate.js";
-import { searchSchema } from "../lib/schemas.js";
+import { searchSchema, guideUpdateSchema, idParam } from "../lib/schemas.js";
 import { wrap } from "../lib/wrap.js";
 import { requireUser, requireRole } from "../lib/auth.js";
 
@@ -52,11 +52,21 @@ guidesRouter.get("/:slug", wrap(async (req: Request, res: Response) => {
   res.json(result.rows[0]);
 }));
 
+// :id ska vara ett positivt heltal – annars 400, inte ett Postgres-fel (500).
+const validateId = (req: Request, res: Response, next: NextFunction) => {
+  const result = idParam.safeParse(req.params.id);
+  if (!result.success) return res.status(400).json({ error: "ogiltigt id" });
+  req.params.id = String(result.data);
+  next();
+};
+
 // Redigering är redaktionens: inloggning (401) och rollen editor (403) kontrolleras innan routen körs.
 guidesRouter.put(
   "/:id",
   requireUser,
   requireRole("editor"),
+  validateId,
+  validate(guideUpdateSchema),
   wrap(async (req: Request, res: Response) => {
     const { title, region, difficulty, lengthKm, bodyHtml, published } = req.body;
     const result = await pool.query(
