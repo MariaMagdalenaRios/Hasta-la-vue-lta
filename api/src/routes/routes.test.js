@@ -185,21 +185,30 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
     expect(res.status).toBe(404);
   });
 
-  it('PUT /api/guides/:id utan token ger 401, som medlem 403', async () => {
-    const guide = (await pool.query('select id, title from guides limit 1')).rows[0];
+  it('PUT /api/guides/:id utan token ger 401, som medlem 403, som redaktör 200', async () => {
+    // Testerna kör mot den lokala databasen: spara hela raden och lägg tillbaka den efteråt,
+    // annars ligger "Hackad" kvar i appen efter varje körning.
+    const guide = (await pool.query('select * from guides order by id limit 1')).rows[0];
     const body = { title: 'Hackad', region: 'x', difficulty: 'lätt', lengthKm: 1, bodyHtml: '', published: true };
-    const utan = await api(`/api/guides/${guide.id}`, { method: 'PUT', body });
-    expect(utan.status).toBe(401);
-    const member = (await pool.query("select id, email, role from users where role = 'member' limit 1")).rows[0];
-    const medlem = await api(`/api/guides/${guide.id}`, { method: 'PUT', body, token: sign(member) });
-    expect(medlem.status).toBe(403);
-    expect((await pool.query('select title from guides where id = $1', [guide.id])).rows[0].title).toBe(guide.title);
-    const editor = (await pool.query("select id, email, role from users where role = 'editor' limit 1")).rows[0];
+    try {
+      const utan = await api(`/api/guides/${guide.id}`, { method: 'PUT', body });
+      expect(utan.status).toBe(401);
+      const member = (await pool.query("select id, email, role from users where role = 'member' limit 1")).rows[0];
+      const medlem = await api(`/api/guides/${guide.id}`, { method: 'PUT', body, token: sign(member) });
+      expect(medlem.status).toBe(403);
+      expect((await pool.query('select title from guides where id = $1', [guide.id])).rows[0].title).toBe(guide.title);
 
-    const redaktor = await api(`/api/guides/${guide.id}`, {method: 'PUT',body,token: sign(editor),});
-    expect(redaktor.status).toBe(200);
-    const updated = (await pool.query('select title from guides where id = $1',[guide.id])).rows[0];
-    expect(updated.title).toBe(body.title);
+      const editor = (await pool.query("select id, email, role from users where role = 'editor' limit 1")).rows[0];
+      const redaktor = await api(`/api/guides/${guide.id}`, { method: 'PUT', body, token: sign(editor) });
+      expect(redaktor.status).toBe(200);
+      expect((await pool.query('select title from guides where id = $1', [guide.id])).rows[0].title).toBe(body.title);
+    } finally {
+      await pool.query(
+        `update guides set title=$1, region=$2, difficulty=$3, length_km=$4, body_html=$5,
+         published=$6, updated_at=$7 where id=$8`,
+        [guide.title, guide.region, guide.difficulty, guide.length_km, guide.body_html, guide.published, guide.updated_at, guide.id],
+      );
+    }
   });
 });
 
@@ -251,4 +260,4 @@ describe('Validering av indata – A10 Mishandling of Exceptional Conditions', (
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'ogiltig JSON' });
   });
-})
+});
