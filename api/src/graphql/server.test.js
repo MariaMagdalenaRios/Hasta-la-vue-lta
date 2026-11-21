@@ -42,6 +42,47 @@ describe("Autentisering", () => {
 
     expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHENTICATED");
   });
+
+  it("nekar en förfalskad JWT med alg:none", async () => {
+  const header = Buffer.from(
+    JSON.stringify({ alg: "none", typ: "JWT" })
+  ).toString("base64url");
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      id: 1,
+      email: "editor@example.com",
+      role: "editor",
+    })
+  ).toString("base64url");
+
+  const forgedToken = `${header}.${payload}.`;
+
+  const response = await yoga.fetch("http://localhost/graphql", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${forgedToken}`,
+    },
+    body: JSON.stringify({
+      query: `
+        mutation {
+          createTour(input: {
+            title: "Forged test"
+            startedAt: "2026-10-22"
+            distanceM: 100
+          }) {
+            id
+          }
+        }
+      `,
+    }),
+  });
+
+  const result = await response.json();
+
+  expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHENTICATED");
+});
 });
 
 describe("PostgreSQL integration", () => {

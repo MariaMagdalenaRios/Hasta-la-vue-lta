@@ -194,6 +194,12 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
     const medlem = await api(`/api/guides/${guide.id}`, { method: 'PUT', body, token: sign(member) });
     expect(medlem.status).toBe(403);
     expect((await pool.query('select title from guides where id = $1', [guide.id])).rows[0].title).toBe(guide.title);
+    const editor = (await pool.query("select id, email, role from users where role = 'editor' limit 1")).rows[0];
+
+    const redaktor = await api(`/api/guides/${guide.id}`, {method: 'PUT',body,token: sign(editor),});
+    expect(redaktor.status).toBe(200);
+    const updated = (await pool.query('select title from guides where id = $1',[guide.id])).rows[0];
+    expect(updated.title).toBe(body.title);
   });
 });
 
@@ -245,4 +251,4 @@ describe('Validering av indata – A10 Mishandling of Exceptional Conditions', (
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'ogiltig JSON' });
   });
-});
+})
