@@ -1,21 +1,21 @@
-# Säkerhet – Utpost
+# Security – Utpost
 
-*Mall (M8). Byt ut exempelraderna mot era egna fynd. Minst tre rader ska ha ett riktigt fynd, en fix i en PR och ett test som var rött före fixen. "Gäller inte oss, för …" är också ett svar – men bara om det är sant. Listan följer OWASP Top 10 (2025).*
+*Template (M8). Replace the example rows with your own findings. At least three rows must have a real finding, a fix in a PR and a test that was red before the fix. "Does not apply to us, because …" is also an answer – but only if it is true. The list follows the OWASP Top 10 (2025).*
 
-**Datum:** 2026-11-14
-**Hotbilden i en mening:** Det som är värt att skydda är användarnas konton, turer och bilder samt redaktionens guider, och angriparen är oftast ett skript som provar öppna endpoints, inte en person.
+**Date:** 2026-11-14
+**The threat in one sentence:** What is worth protecting is the users' accounts, tours and photos and the editorial team's guides, and the attacker is usually a script that probes open endpoints, not a person.
 
-## Autentiseringen (M8)
+## Authentication (M8)
 
-*Läget före fixarna (branch `m8-sakrad`, före första fix-commit).*
+*State before the fixes (branch `m8-sakrad`, before the first fix commit).*
 
-- Lösenord: lagras i klartext som `plaintext:<lösenord>` i `users.password_hash` ([api/src/routes/auth.js:20](../api/src/routes/auth.js) vid inloggning, rad 30 vid registrering). Alla 12 seedade användare har klartextlösenord. `lib/password.js` (scrypt) finns men används inte än.
-- Token: JWT med `id`, `email` och `role`. `lib/auth.js` (från mallen) signerar nu med HS256 och 1 timmes giltighet; tidigare var giltigheten 30 dagar. Klienten håller token i minnet (`client/src/lib/token.ts`), så en omladdning loggar ut.
-- Skyddade routes: bara `POST /api/tours` har `requireUser`. `DELETE /api/tours/:id`, `POST /api/photos` och `PUT /api/guides/:id` saknar både inloggningskrav och rollkontroll i API:et. `requireRole('editor')` finns i `lib/auth.js` men används inte än.
+- Passwords: stored in plaintext as `plaintext:<password>` in `users.password_hash` ([api/src/routes/auth.js:20](../api/src/routes/auth.js) on login, line 30 on registration). All 12 seeded users have plaintext passwords. `lib/password.js` (scrypt) exists but is not used yet.
+- Token: JWT with `id`, `email` and `role`. `lib/auth.js` (from the template) now signs with HS256 and a 1 hour lifetime; it used to be 30 days. The client keeps the token in memory (`client/src/lib/token.ts`), so a page reload logs the user out.
+- Protected routes: only `POST /api/tours` has `requireUser`. `DELETE /api/tours/:id`, `POST /api/photos` and `PUT /api/guides/:id` have neither a login requirement nor a role check in the API. `requireRole('editor')` exists in `lib/auth.js` but is not used yet.
 
-## Testkörning före fixarna (M8)
+## Test run before the fixes (M8)
 
-Körd mot den befintliga koden (branch `m8-sakrad`, inga fixar), med nollställda compose-databaser (Postgres på 5433, Mongo på 27017). Senast körd lokalt 2026-11-18:
+Run against the existing code (branch `m8-sakrad`, no fixes), with reset compose databases (Postgres on 5433, Mongo on 27017). Last run locally on 2026-11-18:
 
 ```sh
 docker compose down -v
@@ -24,28 +24,28 @@ npm run seed        # Seed klar: 12 användare, 40 guider, 200 turer, 5952 loggp
 npm run test:api    # Tests  9 failed | 14 passed (23)
 ```
 
-Samma resultat i CI, där jobbet Integration alltid startar med tomma databaser: [körning 43621048897](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43621048897/job/132526585959). Samma 9 tester är röda med samma fel lokalt och i CI.
+Same result in CI, where the Integration job always starts with empty databases: [run 43621048897](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43621048897/job/132526585959). The same 9 tests are red with the same errors locally and in CI.
 
-**Resultat:** 23 tester, 9 röda och 14 gröna. Alla röda finns i `api/src/routes/routes.test.js`, där 9 av 13 säkerhetstester är röda. GraphQL-testerna (`server.test.js`) och bildtesterna (`photos.test.js`) är gröna, så databaskopplingen fungerar och de röda testerna beror inte på setup.
+**Result:** 23 tests, 9 red and 14 green. All the red ones are in `api/src/routes/routes.test.js`, where 9 of 13 security tests are red. The GraphQL tests (`server.test.js`) and the photo tests (`photos.test.js`) are green, so the database connection works and the red tests are not caused by the setup.
 
-| # | OWASP | Test | Förväntat | Fick | Orsak |
+| # | OWASP | Test | Expected | Got | Cause |
 |---|---|---|---|---|---|
-| 1 | A07 | lösenordet i databasen är hashat, inte klartext | 0 klartext | **12** | Lösenord sparas som `plaintext:…` (`routes/auth.js`) |
-| 2 | A07 | registrering med för kort lösenord ger 400 | 400 | **200** | Ingen validering, så kontot skapas ändå |
-| 3 | A01 | `DELETE /api/tours/:id` utan token ger 401 | 401 | **200** | Ingen `requireUser` på routen (`routes/tours.js:47`). Turen raderades på riktigt. |
-| 4 | A01 | en medlem kan inte ta bort någon annans tur (403) | 403 | TypeError (hela körningen), **200** (ensamt) | Ingen ägarkontroll: en annan medlem kan radera turen. Se förklaringen under tabellen. |
-| 5 | A01 | `POST /api/photos` utan token ger 401 | 401 | **502** | Ingen inloggning krävs (`routes/photos.js:8`). Anropet gick hela vägen till bildfunktionen. |
-| 6 | A05 | ett citattecken i sökordet ger 200 och en tom lista | 200 | **timeout** | Sökordet klistras in i SQL-strängen (`routes/guides.ts:32`). Frågan kraschar (`operator is not unique: unknown % unknown` i loggen) och anropet får inget svar. |
-| 7 | A10 | en bild med orimliga mått stoppas med 400 | 400 | **502** | Ingen validering av `width`/`height` innan anropet skickas vidare |
-| 8 | A10 | ett id som inte är ett tal ger 400 | 400 | **timeout** | Postgres kastar `invalid input syntax for type integer: "abc"`, felet sväljs av `process.on('unhandledRejection')` (`app.js:59`) och anropet hänger |
-| 9 | A10 | trasig JSON ger 400 med ett JSON-svar | 400 + JSON | HTML-sida | Ingen felhanterare, så Express svarar med sin HTML-felsida |
+| 1 | A07 | the password in the database is hashed, not plaintext | 0 plaintext | **12** | Passwords are stored as `plaintext:…` (`routes/auth.js`) |
+| 2 | A07 | registration with a too short password gives 400 | 400 | **200** | No validation, so the account is created anyway |
+| 3 | A01 | `DELETE /api/tours/:id` without a token gives 401 | 401 | **200** | No `requireUser` on the route (`routes/tours.js:47`). The tour was really deleted. |
+| 4 | A01 | a member cannot delete someone else's tour (403) | 403 | TypeError (full run), **200** (alone) | No ownership check: another member can delete the tour. See the explanation below the table. |
+| 5 | A01 | `POST /api/photos` without a token gives 401 | 401 | **502** | No login required (`routes/photos.js:8`). The request went all the way to the image function. |
+| 6 | A05 | a quote character in the search term gives 200 and an empty list | 200 | **timeout** | The search term is pasted into the SQL string (`routes/guides.ts:32`). The query crashes (`operator is not unique: unknown % unknown` in the log) and the request gets no response. |
+| 7 | A10 | an image with absurd dimensions is stopped with 400 | 400 | **502** | No validation of `width`/`height` before the request is forwarded |
+| 8 | A10 | an id that is not a number gives 400 | 400 | **timeout** | Postgres throws `invalid input syntax for type integer: "abc"`, the error is swallowed by `process.on('unhandledRejection')` (`app.js:59`) and the request hangs |
+| 9 | A10 | broken JSON gives 400 with a JSON response | 400 + JSON | HTML page | No error handler, so Express answers with its HTML error page |
 
-**Gröna redan före fixarna:** svaret på inloggning innehåller inte `password_hash`; fel lösenord och okänd e-post ger samma svar; ägaren kan ta bort sin egen tur; en vanlig sökning fungerar.
+**Green even before the fixes:** the login response does not contain `password_hash`; a wrong password and an unknown email give the same response; the owner can delete their own tour; a normal search works.
 
-**Två röda som ser ut som setup-fel men är riktiga hål:**
+**Two red tests that look like setup errors but are real holes:**
 
-- **#5 och #7 ger 502, inte ett setup-fel.** 502 betyder att API:et inte nådde bildfunktionen (lokalt `ECONNREFUSED`, i CI är `IMAGE_FUNCTION_URL` inte satt). Men testerna väntar sig 401 och 400, och de svaren ska komma *innan* bildfunktionen anropas. Att anropet alls kom fram till bildfunktionen visar att inloggningskravet och valideringen saknas. Med bildfunktionen igång hade anropen lyckats, och testerna hade fortfarande varit röda. Efter fixen stoppar `requireUser` och `validate()` anropen före routen, så testerna blir gröna utan bildfunktion.
-- **#4 ger TypeError, men hålet är riktigt.** I hela körningen är tur 1 redan borta, eftersom #3 raderade den utan token. Därför blir raden `undefined`. Körs testet ensamt med tur 1 på plats blir det rött av rätt anledning: `expected 200 to be 403`. En annan medlem kan radera turen.
+- **#5 and #7 give 502, not a setup error.** 502 means the API could not reach the image function (locally `ECONNREFUSED`, in CI `IMAGE_FUNCTION_URL` is not set). But the tests expect 401 and 400, and those responses must come *before* the image function is called. The fact that the request got to the image function at all shows that the login requirement and the validation are missing. With the image function running, the requests would have succeeded, and the tests would still have been red. After the fix, `requireUser` and `validate()` stop the requests before the route, so the tests turn green without the image function.
+- **#4 gives TypeError, but the hole is real.** In the full run, tour 1 is already gone, because #3 deleted it without a token. The row is therefore `undefined`. Run alone with tour 1 in place, the test is red for the right reason: `expected 200 to be 403`. Another member can delete the tour.
 
   ```sh
   npm run test --workspace=api -- src/routes/routes.test.js -t "en medlem kan inte ta bort"
@@ -53,39 +53,39 @@ Samma resultat i CI, där jobbet Integration alltid startar med tomma databaser:
   #   → expected 200 to be 403
   ```
 
-Att setupen fungerar syns på att GraphQL-testerna och bildtesterna i samma körning är gröna mot samma databaser.
+That the setup works can be seen from the GraphQL tests and the photo tests being green in the same run against the same databases.
 
-**Övrigt i körningen:** `afterAll` i `routes.test.js` får timeout efter 10 s, eftersom de hängande anropen från #6 och #8 håller servern öppen. Det är samma A10-brist.
+**Other things in the run:** `afterAll` in `routes.test.js` times out after 10 s, because the hanging requests from #6 and #8 keep the server open. This is the same A10 weakness.
 
-## OWASP Top 10 – genomgång
+## OWASP Top 10 – review
 
-| # | Risk | Gäller oss? | Vad vi hittade (fil, endpoint) | Vad vi gjorde (PR) | Kontroll (testet som var rött före fixen, eller curl) |
+| # | Risk | Applies to us? | What we found (file, endpoint) | What we did (PR) | Verification (the test that was red before the fix, or curl) |
 |---|---|---|---|---|---|
-| A01 | Broken Access Control | Ja | `DELETE /api/tours/:id` och `POST /api/photos` utan inloggning, ingen ägarkontroll vid radering, `PUT /api/guides/:id` utan rollen editor och utan validering av id och indata | Lagat. Tur och foto: `requireUser` + `requireTourAccess` (404 om turen saknas, 403 om man varken äger turen eller är redaktör), commit `0789f06`. Guide-redigering: `requireUser` + `requireRole('editor')`, `idParam` på id, `guideUpdateSchema` på body, 404 om guiden saknas (`routes/guides.ts`), #144. | Test #3, #4, #5 ovan (röda före fixen, gröna nu). #144: blocket `redigera guider (#144)` i `routes.test.js`. 401, 403 och 404 var gröna efter `0789f06`; testerna för ogiltigt id och ogiltig indata (400) var röda före fixen. |
-| A02 | Security Misconfiguration | Ja | `app.use(cors())` utan inställningar (`app.js:21`) skickar `Access-Control-Allow-Origin: *` på alla svar, så vilken webbplats som helst kan läsa API-svar i en besökares webbläsare. Skadan är begränsad: token ligger i minnet och skickas i `Authorization`, inte som cookie. | Raderade `app.use(cors())` och importen (#144). Klienten anropar `/api` och `/graphql` med relativa adresser via Vite-proxyn (dev, `client/vite.config.js`) och nginx (`client/nginx.conf.template`), så webbläsaren gör inga anrop mellan olika origin och behöver ingen CORS. | `A02 Security Misconfiguration – CORS (#144)` i `routes.test.js`: två tester (vanligt anrop och preflight med `Origin: https://evil.example`), röda före fixen. CORS skyddar bara webbläsare, inte mot curl: åtkomst styrs av 401/403. |
-| A03 | Software Supply Chain Failures | Ej undersökt än | | | |
-| A04 | Cryptographic Failures | Ja | Lösenord i klartext (`routes/auth.js`) | Lagat: `lib/password.js` (scrypt) används vid registrering och inloggning. | Test #1 (rött före fixen, grönt nu) |
-| A05 | Injection | Ja | SQL byggd med strängkonkatenering i `GET /api/guides/search` (`routes/guides.ts:32`) | Lagat: parametriserad fråga (`$1`) och `validate(searchSchema, 'query')`, commit `a80fd98`. | Test #6 (rött före fixen, grönt nu) |
-| A06 | Insecure Design | Ej undersökt än | | | |
-| A07 | Authentication Failures | Ja | Inga lösenordskrav vid registrering. Token gällde 30 dagar. | Token: 1 h och HS256 (`lib/auth.js`). Registrering valideras med `registerSchema` (minst 8 tecken). Fel lösenord och okänd e-post ger samma svar. | Test #2 (rött före fixen, grönt nu) |
-| A08 | Software or Data Integrity Failures | Ej undersökt än | | | |
-| A09 | Security Logging & Alerting Failures | Ej undersökt än | | | |
-| A10 | Mishandling of Exceptional Conditions | Ja | Ingen validering av id, JSON eller bildmått. `unhandledRejection` sväljer fel så att anrop hänger. | Delvis lagat (`a80fd98`): validering av id och bildmått, central felhanterare som svarar 400 på trasig JSON, 413 på för stor body och ett generiskt 500 utan interna detaljer. Kvar: `process.on('unhandledRejection')` i `app.js` finns kvar. | Test #7, #8, #9 (röda före fixen, gröna nu) |
+| A01 | Broken Access Control | Yes | `DELETE /api/tours/:id` and `POST /api/photos` without login, no ownership check on delete, `PUT /api/guides/:id` without the editor role and without validation of the id and the data | Fixed. Tour and photo: `requireUser` + `requireTourAccess` (404 if the tour is missing, 403 if you neither own the tour nor are an editor), commit `0789f06`. Guide editing: `requireUser` + `requireRole('editor')`, `idParam` on the id, `guideUpdateSchema` on the body, 404 if the guide is missing (`routes/guides.ts`), #144. | Tests #3, #4, #5 above (red before the fix, green now). #144: the `redigera guider (#144)` block in `routes.test.js`. 401, 403 and 404 were already green after `0789f06`; the tests for an invalid id and invalid data (400) were red before the fix. |
+| A02 | Security Misconfiguration | Yes | `app.use(cors())` without options (`app.js:21`) sends `Access-Control-Allow-Origin: *` on every response, so any website can read API responses in a visitor's browser. The damage is limited: the token lives in memory and is sent in `Authorization`, not as a cookie. | Removed `app.use(cors())` and the import (#144). The client calls `/api` and `/graphql` with relative URLs through the Vite proxy (dev, `client/vite.config.js`) and nginx (`client/nginx.conf.template`), so the browser makes no cross-origin calls and needs no CORS. | `A02 Security Misconfiguration – CORS (#144)` in `routes.test.js`: two tests (a plain request and a preflight with `Origin: https://evil.example`), red before the fix. CORS only protects browsers, not against curl: access is controlled by 401/403. |
+| A03 | Software Supply Chain Failures | Not investigated yet | | | |
+| A04 | Cryptographic Failures | Yes | Passwords in plaintext (`routes/auth.js`) | Fixed: `lib/password.js` (scrypt) is used on registration and login. | Test #1 (red before the fix, green now) |
+| A05 | Injection | Yes | SQL built with string concatenation in `GET /api/guides/search` (`routes/guides.ts:32`) | Fixed: parameterised query (`$1`) and `validate(searchSchema, 'query')`, commit `a80fd98`. | Test #6 (red before the fix, green now) |
+| A06 | Insecure Design | Not investigated yet | | | |
+| A07 | Authentication Failures | Yes | No password requirements on registration. The token was valid for 30 days. | Token: 1 h and HS256 (`lib/auth.js`). Registration is validated with `registerSchema` (at least 8 characters). A wrong password and an unknown email give the same response. | Test #2 (red before the fix, green now) |
+| A08 | Software or Data Integrity Failures | Not investigated yet | | | |
+| A09 | Security Logging & Alerting Failures | Not investigated yet | | | |
+| A10 | Mishandling of Exceptional Conditions | Yes | No validation of id, JSON or image dimensions. `unhandledRejection` swallows errors so requests hang. | Partly fixed (`a80fd98`): validation of id and image dimensions, a central error handler that answers 400 on broken JSON, 413 on a too large body and a generic 500 without internal details. Remaining: `process.on('unhandledRejection')` is still in `app.js`. | Tests #7, #8, #9 (red before the fix, green now) |
 
-## Validering av indata
+## Input validation
 
-Före fixarna fanns ingen validering i routerna. Ogiltig indata gav antingen 200 (registrering), 502 (bildmått), en HTML-felsida (trasig JSON) eller ett anrop som hängde (id som inte är ett tal). Se test #2, #7, #8 och #9 ovan.
+Before the fixes there was no validation in the routers. Invalid input gave either 200 (registration), 502 (image dimensions), an HTML error page (broken JSON) or a request that hung (an id that is not a number). See tests #2, #7, #8 and #9 above.
 
-Nu valideras indata på servern med Zod-scheman i `lib/schemas.js` och `validate()` i `lib/validate.js`, före routen: `loginSchema`, `registerSchema`, `createTourSchema`, `photoUploadSchema`, `searchSchema` och `guideUpdateSchema` (#144), samt `idParam` för id i adressen. Ogiltig indata ger 400 med `{ error: 'ogiltig indata', issues }`. Bodyn är begränsad till 1 mb.
+Input is now validated on the server with Zod schemas in `lib/schemas.js` and `validate()` in `lib/validate.js`, before the route: `loginSchema`, `registerSchema`, `createTourSchema`, `photoUploadSchema`, `searchSchema` and `guideUpdateSchema` (#144), plus `idParam` for ids in the URL. Invalid input gives 400 with `{ error: 'ogiltig indata', issues }`. The body is limited to 1 mb.
 
-## Headers vi sätter (nginx)
+## Headers we set (nginx)
 
-______ (`curl -I` mot staging – CSP och de andra säkerhetsheadrarna. Kommer i fredagens labb.)
+______ (`curl -I` against staging – CSP and the other security headers. Coming in Friday's lab.)
 
-## Skanning i pipelinen
+## Scanning in the pipeline
 
-______ (vilka verktyg kör i jobbet *Säkerhet*, vad hittar var och en, och vad gör jobbet rött. Kommer i fredagens labb.)
+______ (which tools run in the *Security* job, what each one finds, and what turns the job red. Coming in Friday's lab.)
 
-## Kända brister (medvetet kvar)
+## Known weaknesses (deliberately left)
 
-______ (det ni valt att inte laga än, och varför. Ärlighet ger poäng: en omladdning loggar ut – refresh-token är inte byggt; bytes lämnar inte browsern; …)
+______ (what you chose not to fix yet, and why. Honesty earns points: a reload logs the user out – a refresh token is not built; bytes never leave the browser; …)
