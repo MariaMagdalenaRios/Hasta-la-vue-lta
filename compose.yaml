@@ -78,9 +78,9 @@ services:
     environment:
       API_UPSTREAM: http://api:4000
     ports:
-      - "3001:80"
+      - "3001:8080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 5s
       timeout: 5s
       retries: 10
