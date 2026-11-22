@@ -39,5 +39,16 @@ export const searchSchema = z.object({
   q: z.string().trim().max(100).default(''),
 });
 
+// PUT /api/guides/:id (#144): redaktionens fält. Gränserna är medvetna: titel 120 tecken, brödtext
+// 100 000 tecken, längd 0–5 000 km. Okända fält (t.ex. slug, author_id) tas bort av Zod.
+export const guideUpdateSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  region: z.string().trim().min(1).max(80),
+  difficulty: z.string().trim().min(1).max(40),
+  lengthKm: z.coerce.number().min(0).max(5000),
+  bodyHtml: z.string().max(100_000),
+  published: z.boolean(),
+});
+
 // Id i adressen: /api/tours/:id ska vara ett positivt heltal, inte "1 or 1=1".
 export const idParam = z.coerce.number().int().positive();

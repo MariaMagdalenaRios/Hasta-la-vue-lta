@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@utpost/shared": "^0.0.1",
-    "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "drizzle-orm": "^0.36.4",
     "express": "^4.21.2",

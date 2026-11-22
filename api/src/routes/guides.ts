@@ -1,9 +1,9 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import type { Guide } from "@utpost/shared";
 import { pool } from "../db/client.js";
 import { validate } from "../lib/validate.js";
-import { searchSchema } from "../lib/schemas.js";
+import { searchSchema, guideUpdateSchema, idParam } from "../lib/schemas.js";
 import { wrap } from "../lib/wrap.js";
 import { requireUser, requireRole } from "../lib/auth.js";
 
@@ -57,6 +57,13 @@ guidesRouter.put(
   "/:id",
   requireUser,
   requireRole("editor"),
+  (req: Request, res: Response, next: NextFunction) => {
+    const id = idParam.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: "ogiltigt id" });
+    req.params.id = String(id.data);
+    next();
+  },
+  validate(guideUpdateSchema),
   wrap(async (req: Request, res: Response) => {
     const { title, region, difficulty, lengthKm, bodyHtml, published } = req.body;
     const result = await pool.query(
