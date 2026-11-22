@@ -1,91 +1,98 @@
 # Security – Utpost
 
-*Template (M8). Replace the example rows with your own findings. At least three rows must have a real finding, a fix in a PR and a test that was red before the fix. "Does not apply to us, because …" is also an answer – but only if it is true. The list follows the OWASP Top 10 (2025).*
+**Date:** 2026-11-22
+**Threat model in one sentence:** What is worth protecting is the users' accounts, tours and photos and the editorial team's guides, and the attacker is usually a script that probes open endpoints (anonymous visitors, or a logged-in member trying to reach editor or other members' data), not a targeted human attacker.
 
-**Date:** 2026-11-14
-**The threat in one sentence:** What is worth protecting is the users' accounts, tours and photos and the editorial team's guides, and the attacker is usually a script that probes open endpoints, not a person.
+The list below follows the OWASP Top 10 (2025). Each category has a short explanation and a verdict: **Yes**, **Partially** or **No** (does it apply to Utpost).
 
-## Authentication (M8)
+## Authentication and authorization
 
-*State before the fixes (branch `m8-sakrad`, before the first fix commit).*
+### How passwords are stored
+- Passwords are never stored. `users.password_hash` holds `scrypt:<salt>:<hash>`, produced by [`lib/password.js`](../api/src/lib/password.js) with Node's built-in scrypt (N = 2^17, r = 8, p = 1, a random 16 byte salt per user, as recommended by the OWASP Password Storage Cheat Sheet).
+- Comparison uses `timingSafeEqual`. When the email is unknown, the server still computes a hash against a dummy value, so "unknown email" and "wrong password" take equally long and return the same 401 response.
+- Before the fix (PR #151) passwords were stored as `plaintext:<password>` and the API returned the whole user row, including `password_hash`. API responses now go through `publicUser` and never contain the hash.
+- Registration requires a password of at least 8 characters (`registerSchema` in [`lib/schemas.js`](../api/src/lib/schemas.js)).
 
-- Passwords: stored in plaintext as `plaintext:<password>` in `users.password_hash` ([api/src/routes/auth.js:20](../api/src/routes/auth.js) on login, line 30 on registration). All 12 seeded users have plaintext passwords. `lib/password.js` (scrypt) exists but is not used yet.
-- Token: JWT with `id`, `email` and `role`. `lib/auth.js` (from the template) now signs with HS256 and a 1 hour lifetime; it used to be 30 days. The client keeps the token in memory (`client/src/lib/token.ts`), so a page reload logs the user out.
-- Protected routes: only `POST /api/tours` has `requireUser`. `DELETE /api/tours/:id`, `POST /api/photos` and `PUT /api/guides/:id` have neither a login requirement nor a role check in the API. `requireRole('editor')` exists in `lib/auth.js` but is not used yet.
+### Tokens
+- On login and registration the API returns a JWT (`id`, `email`, `role`) signed with HS256 using `JWT_SECRET`. The server refuses to start without that variable.
+- The token expires after **1 hour** (before: 30 days). `jwt.verify` only accepts HS256, so a token with `alg: none` is rejected.
+- The client keeps the token in memory ([`client/src/lib/token.ts`](../client/src/lib/token.ts)), not in `localStorage`, and sends it as `Authorization: Bearer <token>`. It is never a cookie.
+- A missing, invalid or expired token gives **401**. A valid token with the wrong role or the wrong owner gives **403**.
 
-## Test run before the fixes (M8)
+### Which endpoints need what
+| Endpoint | Requirement | Where |
+|---|---|---|
+| `POST /api/auth/login`, `POST /api/auth/register` | none (body validated) | [`routes/auth.js`](../api/src/routes/auth.js) |
+| `GET /api/guides`, `/regions`, `/popular`, `/search`, `/:slug` | none (public) | [`routes/guides.ts`](../api/src/routes/guides.ts) |
+| `PUT /api/guides/:id` | login + role `editor` (401 / 403), valid id and body (400), 404 if missing | `routes/guides.ts` |
+| `GET /api/tours`, `/latest`, `/:id` | none (public) | [`routes/tours.js`](../api/src/routes/tours.js) |
+| `POST /api/tours` | login | `routes/tours.js` |
+| `DELETE /api/tours/:id` | login + owner of the tour or `editor` (401 / 403 / 404) | `routes/tours.js`, [`lib/tourAccess.js`](../api/src/lib/tourAccess.js) |
+| `POST /api/photos` | login + owner of the tour or `editor` (401 / 403 / 404) | [`routes/photos.js`](../api/src/routes/photos.js) |
+| `GET /api/photos/tour/:tourId` | none (public) | `routes/photos.js` |
+| GraphQL queries | none (public) | [`graphql/`](../api/src/graphql) |
+| GraphQL mutation `createTour` | login (token in the context) | `graphql/resolvers.js` |
 
-Run against the existing code (branch `m8-sakrad`, no fixes), with reset compose databases (Postgres on 5433, Mongo on 27017). Last run locally on 2026-11-18:
+The client also protects the routes `/tours/:id` and `/profil` with a router guard, but that is only convenience. The real protection is in the API, because anyone can call the API without the client.
 
-```sh
-docker compose down -v
-docker compose up -d --wait postgres mongo
-npm run seed        # Seed klar: 12 användare, 40 guider, 200 turer, 5952 loggpunkter.
-npm run test:api    # Tests  9 failed | 14 passed (23)
-```
+## Vulnerabilities found and fixed
 
-Same result in CI, where the Integration job always starts with empty databases: [run 43621048897](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43621048897/job/132526585959). The same 9 tests are red with the same errors locally and in CI.
+Every fix has a test in [`api/src/routes/routes.test.js`](../api/src/routes/routes.test.js) that was **red before the fix** and is green now.
 
-**Result:** 23 tests, 9 red and 14 green. All the red ones are in `api/src/routes/routes.test.js`, where 9 of 13 security tests are red. The GraphQL tests (`server.test.js`) and the photo tests (`photos.test.js`) are green, so the database connection works and the red tests are not caused by the setup.
+| # | OWASP | Vulnerability | Pull request | Failing test (before the fix) |
+|---|---|---|---|---|
+| 1 | A04 / A07 | Passwords stored in plaintext (`plaintext:…`) and `password_hash` sent to the client | [#151](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/151) | `lösenordet i databasen är hashat, inte klartext` |
+| 2 | A07 | Registration accepted a too short password; token lived 30 days | [#151](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/151) | `registrering med för kort lösenord ger 400 med vad som var fel` |
+| 3 | A05 | SQL injection in `GET /api/guides/search`: the search term was pasted into the SQL string, a quote character crashed the query and the request hung | [#153](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/153) | `ett citattecken i sökordet ger 200 och en tom lista, inte 500` |
+| 4 | A10 | A non-numeric id, broken JSON or absurd image sizes were not validated: hanging requests, HTML error pages, calls forwarded to the image function | [#153](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/153) | `ett id som inte är ett tal ger 400, inte ett ohanterat fel`, `trasig JSON ger 400 med ett svar – inte ett anrop som hänger`, `en bild med orimliga mått stoppas med 400 innan något sparas` |
+| 5 | A01 | Anyone could delete any tour and upload photos without logging in; no ownership check | [#156](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/156) | `DELETE /api/tours/:id utan token ger 401 och turen finns kvar`, `en medlem kan inte ta bort någon annans tur (403)`, `POST /api/photos utan token ger 401 – uppladdning kräver inloggning` |
+| 6 | A01 | `PUT /api/guides/:id` needed no login and no editor role, and the id and body were not validated | [#156](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/156) | `PUT /api/guides/:id utan token ger 401, som medlem 403, som redaktör 200`, `ogiltig indata ger 400 och guiden är oförändrad`, `ett id som inte är ett tal ger 400` |
+| 7 | A02 | `app.use(cors())` sent `Access-Control-Allow-Origin: *` on every response | [#156](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/pull/156) | `en okänd origin får inte Access-Control-Allow-Origin: *`, `preflight från en okänd origin får inte tillåtas med *` |
 
-| # | OWASP | Test | Expected | Got | Cause |
-|---|---|---|---|---|---|
-| 1 | A07 | the password in the database is hashed, not plaintext | 0 plaintext | **12** | Passwords are stored as `plaintext:…` (`routes/auth.js`) |
-| 2 | A07 | registration with a too short password gives 400 | 400 | **200** | No validation, so the account is created anyway |
-| 3 | A01 | `DELETE /api/tours/:id` without a token gives 401 | 401 | **200** | No `requireUser` on the route (`routes/tours.js:47`). The tour was really deleted. |
-| 4 | A01 | a member cannot delete someone else's tour (403) | 403 | TypeError (full run), **200** (alone) | No ownership check: another member can delete the tour. See the explanation below the table. |
-| 5 | A01 | `POST /api/photos` without a token gives 401 | 401 | **502** | No login required (`routes/photos.js:8`). The request went all the way to the image function. |
-| 6 | A05 | a quote character in the search term gives 200 and an empty list | 200 | **timeout** | The search term is pasted into the SQL string (`routes/guides.ts:32`). The query crashes (`operator is not unique: unknown % unknown` in the log) and the request gets no response. |
-| 7 | A10 | an image with absurd dimensions is stopped with 400 | 400 | **502** | No validation of `width`/`height` before the request is forwarded |
-| 8 | A10 | an id that is not a number gives 400 | 400 | **timeout** | Postgres throws `invalid input syntax for type integer: "abc"`, the error is swallowed by `process.on('unhandledRejection')` (`app.js:59`) and the request hangs |
-| 9 | A10 | broken JSON gives 400 with a JSON response | 400 + JSON | HTML page | No error handler, so Express answers with its HTML error page |
-
-**Green even before the fixes:** the login response does not contain `password_hash`; a wrong password and an unknown email give the same response; the owner can delete their own tour; a normal search works.
-
-**Two red tests that look like setup errors but are real holes:**
-
-- **#5 and #7 give 502, not a setup error.** 502 means the API could not reach the image function (locally `ECONNREFUSED`, in CI `IMAGE_FUNCTION_URL` is not set). But the tests expect 401 and 400, and those responses must come *before* the image function is called. The fact that the request got to the image function at all shows that the login requirement and the validation are missing. With the image function running, the requests would have succeeded, and the tests would still have been red. After the fix, `requireUser` and `validate()` stop the requests before the route, so the tests turn green without the image function.
-- **#4 gives TypeError, but the hole is real.** In the full run, tour 1 is already gone, because #3 deleted it without a token. The row is therefore `undefined`. Run alone with tour 1 in place, the test is red for the right reason: `expected 200 to be 403`. Another member can delete the tour.
-
-  ```sh
-  npm run test --workspace=api -- src/routes/routes.test.js -t "en medlem kan inte ta bort"
-  # × en medlem kan inte ta bort någon annans tur (403)
-  #   → expected 200 to be 403
-  ```
-
-That the setup works can be seen from the GraphQL tests and the photo tests being green in the same run against the same databases.
-
-**Other things in the run:** `afterAll` in `routes.test.js` times out after 10 s, because the hanging requests from #6 and #8 keep the server open. This is the same A10 weakness.
+Notes on the evidence:
+- The red run before the fixes (9 red, 14 green of 23 tests) is in the [CI run for PR #151](https://github.com/MariaMagdalenaRios/Hasta-la-vue-lta/actions/runs/43621048897/job/132526585959).
+- Some tests returned **502** instead of 401 or 400 before the fix. That was not a setup error: it showed that the request reached the image function, so the login check and the validation were missing.
+- A test named `en medlem kan inte ta bort någon annans tur (403)` threw a TypeError in the full run, because an earlier red test had already deleted tour 1 without a token. Run alone it failed with `expected 200 to be 403`, which is the real hole.
+- For #7 the damage was limited, since the token is sent in the `Authorization` header and not in a cookie, so another site could read public responses but not steal a session. The Vue client calls `/api` and `/graphql` with relative URLs through the Vite proxy ([`client/vite.config.js`](../client/vite.config.js)) and nginx ([`client/nginx.conf.template`](../client/nginx.conf.template)), so removing CORS breaks nothing. CORS also only protects browsers; scripts ignore it, so access control (401 / 403) is what really protects the data.
 
 ## OWASP Top 10 – review
 
-| # | Risk | Applies to us? | What we found (file, endpoint) | What we did (PR) | Verification (the test that was red before the fix, or curl) |
-|---|---|---|---|---|---|
-| A01 | Broken Access Control | Yes | `DELETE /api/tours/:id` and `POST /api/photos` without login, no ownership check on delete, `PUT /api/guides/:id` without the editor role and without validation of the id and the data | Fixed. Tour and photo: `requireUser` + `requireTourAccess` (404 if the tour is missing, 403 if you neither own the tour nor are an editor), commit `0789f06`. Guide editing: `requireUser` + `requireRole('editor')`, `idParam` on the id, `guideUpdateSchema` on the body, 404 if the guide is missing (`routes/guides.ts`), #144. | Tests #3, #4, #5 above (red before the fix, green now). #144: the `redigera guider (#144)` block in `routes.test.js`. 401, 403 and 404 were already green after `0789f06`; the tests for an invalid id and invalid data (400) were red before the fix. |
-| A02 | Security Misconfiguration | Yes | `app.use(cors())` without options (`app.js:21`) sends `Access-Control-Allow-Origin: *` on every response, so any website can read API responses in a visitor's browser. The damage is limited: the token lives in memory and is sent in `Authorization`, not as a cookie. | Removed `app.use(cors())` and the import (#144). The client calls `/api` and `/graphql` with relative URLs through the Vite proxy (dev, `client/vite.config.js`) and nginx (`client/nginx.conf.template`), so the browser makes no cross-origin calls and needs no CORS. | `A02 Security Misconfiguration – CORS (#144)` in `routes.test.js`: two tests (a plain request and a preflight with `Origin: https://evil.example`), red before the fix. CORS only protects browsers, not against curl: access is controlled by 401/403. |
-| A03 | Software Supply Chain Failures | Not investigated yet | | | |
-| A04 | Cryptographic Failures | Yes | Passwords in plaintext (`routes/auth.js`) | Fixed: `lib/password.js` (scrypt) is used on registration and login. | Test #1 (red before the fix, green now) |
-| A05 | Injection | Yes | SQL built with string concatenation in `GET /api/guides/search` (`routes/guides.ts:32`) | Fixed: parameterised query (`$1`) and `validate(searchSchema, 'query')`, commit `a80fd98`. | Test #6 (red before the fix, green now) |
-| A06 | Insecure Design | Not investigated yet | | | |
-| A07 | Authentication Failures | Yes | No password requirements on registration. The token was valid for 30 days. | Token: 1 h and HS256 (`lib/auth.js`). Registration is validated with `registerSchema` (at least 8 characters). A wrong password and an unknown email give the same response. | Test #2 (red before the fix, green now) |
-| A08 | Software or Data Integrity Failures | Not investigated yet | | | |
-| A09 | Security Logging & Alerting Failures | Not investigated yet | | | |
-| A10 | Mishandling of Exceptional Conditions | Yes | No validation of id, JSON or image dimensions. `unhandledRejection` swallows errors so requests hang. | Partly fixed (`a80fd98`): validation of id and image dimensions, a central error handler that answers 400 on broken JSON, 413 on a too large body and a generic 500 without internal details. Remaining: `process.on('unhandledRejection')` is still in `app.js`. | Tests #7, #8, #9 (red before the fix, green now) |
+| # | Risk | Applies? | Explanation and status |
+|---|---|---|---|
+| A01 | Broken Access Control | Yes | Users must only reach what they own or what their role allows. We had three holes (tour delete, photo upload, guide edit); all are fixed with `requireUser`, `requireTourAccess` and `requireRole('editor')`. See vulnerabilities 5 and 6. |
+| A02 | Security Misconfiguration | Yes | Unsafe defaults and over-broad settings. We removed the open CORS setting (vulnerability 7). Still open: nginx sets no security headers (no CSP, `X-Content-Type-Options`, `X-Frame-Options`), and `process.on('unhandledRejection')` in `app.js` keeps the server alive after unexpected errors. See known limitations. |
+| A03 | Software Supply Chain Failures | Yes | We depend on many npm packages. `npm audit --omit=dev` reports 8 vulnerabilities (1 critical, 4 high, 3 moderate, e.g. in `proxy-addr`, `qs` and `source-map-js`) and the pipeline does not scan dependencies. Not fixed yet. |
+| A04 | Cryptographic Failures | Yes | Sensitive data must be protected with proper cryptography. Passwords are now hashed with salted scrypt (vulnerability 1) and tokens are signed with HS256. Remaining: the site is served over plain HTTP inside the container; TLS is expected to be terminated by the hosting platform. |
+| A05 | Injection | Yes | Input must never become code. The search query was injectable (vulnerability 3) and is now parameterised (`$1`). All other queries already use parameters, and all request bodies are validated with Zod. |
+| A06 | Insecure Design | Partially | Weaknesses in the design itself, not a single bug. Examples that remain: login and registration have no rate limit, and tours, logs and photo lists are public by design. Roles are only `member` and `editor`. |
+| A07 | Authentication Failures | Yes | Weak login and session handling. Fixed: hashed passwords, 8 character minimum, 1 hour tokens, HS256 only, identical response for unknown email and wrong password. Remaining: no rate limiting, no refresh token, no account lockout. |
+| A08 | Software or Data Integrity Failures | Partially | Code and data must come from a trusted source. Builds run in GitHub Actions with a lockfile (`npm ci`) and images are built in CI, but dependencies and actions are not pinned to commit hashes and images are not signed. Request data is validated on the server. |
+| A09 | Security Logging & Alerting Failures | Yes | Security events should be recorded and noticed. Today there is almost no logging: failed logins, 401 / 403 responses and validation errors are not logged and nobody is alerted. Not fixed yet. |
+| A10 | Mishandling of Exceptional Conditions | Yes | Errors must be handled safely. Fixed: a central error handler returns 400 for broken JSON and invalid input, 413 for a too large body and a generic 500 without internal details; ids are validated (vulnerability 4). Remaining: `unhandledRejection` is still swallowed instead of failing fast. |
 
 ## Input validation
 
-Before the fixes there was no validation in the routers. Invalid input gave either 200 (registration), 502 (image dimensions), an HTML error page (broken JSON) or a request that hung (an id that is not a number). See tests #2, #7, #8 and #9 above.
-
-Input is now validated on the server with Zod schemas in `lib/schemas.js` and `validate()` in `lib/validate.js`, before the route: `loginSchema`, `registerSchema`, `createTourSchema`, `photoUploadSchema`, `searchSchema` and `guideUpdateSchema` (#144), plus `idParam` for ids in the URL. Invalid input gives 400 with `{ error: 'ogiltig indata', issues }`. The body is limited to 1 mb.
+All request bodies and the search query are validated on the server with Zod schemas in [`lib/schemas.js`](../api/src/lib/schemas.js) through `validate()` in [`lib/validate.js`](../api/src/lib/validate.js), before the route runs: `loginSchema`, `registerSchema`, `createTourSchema`, `photoUploadSchema`, `searchSchema` and `guideUpdateSchema`. Ids in the URL are checked with `idParam`. Invalid input returns 400 with `{ error: 'ogiltig indata', issues }`, unknown fields are dropped, and the body is limited to 1 mb.
 
 ## Headers we set (nginx)
 
-______ (`curl -I` against staging – CSP and the other security headers. Coming in Friday's lab.)
+None yet. [`client/nginx.conf.template`](../client/nginx.conf.template) only proxies `/api/` and `/graphql` to the API and serves the Vue app; it adds no security headers. A Content-Security-Policy, `X-Content-Type-Options: nosniff`, `X-Frame-Options` / `frame-ancestors` and `Referrer-Policy` are still to do (see A02).
 
 ## Scanning in the pipeline
 
-______ (which tools run in the *Security* job, what each one finds, and what turns the job red. Coming in Friday's lab.)
+The CI workflow ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) has four jobs: quality (typecheck, lint, format check, unit tests), build, integration (API tests against real Postgres and Mongo, which include the security tests above) and image. The security tests run on every push and turn the job red if a fix is removed. There is **no dependency or secret scanning job** yet (for example `npm audit` or CodeQL), so A03 is not covered automatically.
 
-## Known weaknesses (deliberately left)
+## Known limitations
 
-______ (what you chose not to fix yet, and why. Honesty earns points: a reload logs the user out – a refresh token is not built; bytes never leave the browser; …)
+These are left on purpose or not done yet:
+- **Reloading the page logs the user out.** The token lives only in memory. A refresh token in an httpOnly cookie is not implemented.
+- **No rate limiting** on login and registration, so passwords can be guessed by a script.
+- **Security events are not logged** (failed logins, 401 / 403, validation errors), and there are no alerts.
+- **Tokens cannot be revoked.** A stolen token works until it expires after 1 hour.
+- **No security headers** in nginx (CSP and others).
+- **Dependencies have known vulnerabilities** (`npm audit`: 8, one critical) and are not scanned in CI.
+- **Only two roles**, and tours, logs and photo lists are readable by anyone without logging in.
+- **`unhandledRejection` is swallowed** in `app.js` instead of failing fast.
+- **The `cors` package is still listed** in `api/package.json` although it is no longer used.
+- **No TLS configuration in the repo**; HTTPS depends on the hosting platform.
+- **`JWT_SECRET` is one shared secret.** If it leaks, anyone can sign tokens. There is no rotation procedure besides replacing the value.
