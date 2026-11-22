@@ -49,7 +49,9 @@ const userFromRequest = (request) => {
   if (!match) return null;
 
   try {
-    return jwt.verify(match[1], config.jwtSecret);
+    return jwt.verify(match[1], config.jwtSecret, {
+      algorithms: ['HS256'],
+    });
   } catch {
     return null;
   }

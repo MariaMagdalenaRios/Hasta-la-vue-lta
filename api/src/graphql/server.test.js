@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import jwt from "jsonwebtoken";
+import { config } from "../config.js";
 import { yoga } from "./server.js";
 
 describe("GraphQL API integration", () => {
@@ -39,6 +41,51 @@ describe("Autentisering", () => {
     });
 
     const result = await response.json();
+
+    expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHENTICATED");
+  });
+
+  const createTourWithToken = async (token) => {
+    const response = await yoga.fetch("http://localhost/graphql", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        query: `
+          mutation {
+            createTour(input: {
+              title: "Forged test"
+              startedAt: "2026-10-22"
+              distanceM: 100
+            }) {
+              id
+            }
+          }
+        `,
+      }),
+    });
+    return response.json();
+  };
+
+  const editorClaims = { id: 1, email: "editor@example.com", role: "editor" };
+
+  it("nekar en förfalskad JWT med alg:none", async () => {
+    const base64url = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+    const forgedToken = `${base64url({ alg: "none", typ: "JWT" })}.${base64url(editorClaims)}.`;
+
+    const result = await createTourWithToken(forgedToken);
+
+    expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHENTICATED");
+  });
+
+  // Låser fixen: jsonwebtoken nekar alg:none redan själv, men utan algorithms: ["HS256"]
+  // godtas en token signerad med samma hemlighet och en annan algoritm (HS512).
+  it("nekar en JWT signerad med annan algoritm än HS256", async () => {
+    const token = jwt.sign(editorClaims, config.jwtSecret, { algorithm: "HS512" });
+
+    const result = await createTourWithToken(token);
 
     expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHENTICATED");
   });
