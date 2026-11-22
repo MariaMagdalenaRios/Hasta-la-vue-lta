@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { useSessionStore } from '../stores/session'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
-const session = useSessionStore()
+const auth = useAuthStore()
 
 function logout() {
-  session.logout()
+  auth.logout()
   router.push('/login')
 }
 </script>
@@ -19,8 +19,8 @@ function logout() {
       <RouterLink to="/guides">Guider</RouterLink>
       <RouterLink to="/tours">Turer</RouterLink>
 
-      <template v-if="session.isLoggedIn">
-        <RouterLink to="/profil" class="username">{{ session.user?.display_name }}</RouterLink>
+      <template v-if="auth.isLoggedIn">
+        <RouterLink to="/profil" class="username">{{ auth.user?.display_name }}</RouterLink>
         <button class="button-logout" @click="logout">Logga ut</button>
       </template>
 
