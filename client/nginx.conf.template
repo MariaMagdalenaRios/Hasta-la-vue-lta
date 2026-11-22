@@ -2,11 +2,15 @@ server {
     listen 80;
     server_name _;
 
+    # Do not reveal the nginx version in responses and error pages
+    server_tokens off;
+
     root /usr/share/nginx/html;
     index index.html;
 
     # REST → backend (no trailing slash on proxy_pass keeps the /api/ prefix)
     location /api/ {
+        include /etc/nginx/snippets/security-headers.conf;
         proxy_pass ${API_UPSTREAM};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -15,6 +19,7 @@ server {
 
     # GraphQL → backend
     location /graphql {
+        include /etc/nginx/snippets/security-headers.conf;
         proxy_pass ${API_UPSTREAM};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -24,6 +29,7 @@ server {
     # SPA fallback: unknown paths like /tours or /guides get index.html,
     # and Vue Router takes over from there
     location / {
+        include /etc/nginx/snippets/security-headers.conf;
         try_files $uri $uri/ /index.html;
     }
 }

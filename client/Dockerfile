@@ -20,6 +20,7 @@ FROM nginx:1.27-alpine
 
 ENV API_UPSTREAM=http://api:4000
 COPY client/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY client/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/client/dist /usr/share/nginx/html
 
 EXPOSE 80
