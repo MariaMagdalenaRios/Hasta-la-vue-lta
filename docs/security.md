@@ -60,8 +60,8 @@ Notes on the evidence:
 | # | Risk | Applies? | Explanation and status |
 |---|---|---|---|
 | A01 | Broken Access Control | Yes | Users must only reach what they own or what their role allows. We had three holes (tour delete, photo upload, guide edit); all are fixed with `requireUser`, `requireTourAccess` and `requireRole('editor')`. See vulnerabilities 5 and 6. |
-| A02 | Security Misconfiguration | Yes | Unsafe defaults and over-broad settings. We removed the open CORS setting (vulnerability 7). Still open: nginx sets no security headers (no CSP, `X-Content-Type-Options`, `X-Frame-Options`), and `process.on('unhandledRejection')` in `app.js` keeps the server alive after unexpected errors. See known limitations. |
-| A03 | Software Supply Chain Failures | Yes | We depend on many npm packages. `npm audit --omit=dev` reports 8 vulnerabilities (1 critical, 4 high, 3 moderate, e.g. in `proxy-addr`, `qs` and `source-map-js`) and the pipeline does not scan dependencies. Not fixed yet. |
+| A02 | Security Misconfiguration | Yes | Unsafe defaults and over-broad settings. We removed the open CORS setting (vulnerability 7). nginx now sends a Content-Security-Policy, `nosniff` and other security headers (see "Headers we set (nginx)"), and both containers run as non-root users. Still open: `process.on('unhandledRejection')` in `app.js` keeps the server alive after unexpected errors. See known limitations. |
+| A03 | Software Supply Chain Failures | Yes | We depend on many npm packages. The high and critical findings in production dependencies are fixed (`drizzle-orm`, `proxy-addr`, `body-parser`, `source-map-js`, `vite`), and the `Säkerhet` job now runs `npm audit --omit=dev --audit-level=high`, Trivy and ZAP on every pull request (see "Scanning in the pipeline"). Remaining: three moderate findings (`dompurify`, `qs`, `express`) and findings in development-only tools such as `vitest`, which do not fail the gate and are not shipped to users. |
 | A04 | Cryptographic Failures | Yes | Sensitive data must be protected with proper cryptography. Passwords are now hashed with salted scrypt (vulnerability 1) and tokens are signed with HS256. Remaining: the site is served over plain HTTP inside the container; TLS is expected to be terminated by the hosting platform. |
 | A05 | Injection | Yes | Input must never become code. The search query was injectable (vulnerability 3) and is now parameterised (`$1`). All other queries already use parameters, and all request bodies are validated with Zod. |
 | A06 | Insecure Design | Partially | Weaknesses in the design itself, not a single bug. Examples that remain: login and registration have no rate limit, and tours, logs and photo lists are public by design. Roles are only `member` and `editor`. |
@@ -76,11 +76,24 @@ All request bodies and the search query are validated on the server with Zod sch
 
 ## Headers we set (nginx)
 
-None yet. [`client/nginx.conf.template`](../client/nginx.conf.template) only proxies `/api/` and `/graphql` to the API and serves the Vue app; it adds no security headers. A Content-Security-Policy, `X-Content-Type-Options: nosniff`, `X-Frame-Options` / `frame-ancestors` and `Referrer-Policy` are still to do (see A02).
+[`client/security-headers.conf`](../client/security-headers.conf) is included from every `location` in [`client/nginx.conf.template`](../client/nginx.conf.template) (`/api/`, `/graphql` and `/`), with `always` so the headers are also sent on error responses. nginx only inherits `add_header` into a location that has none of its own, so the shared include keeps them from silently disappearing.
+
+| Header | Value | Protects against |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` | XSS: only our own origin may supply scripts, styles, images and API calls |
+| `X-Content-Type-Options` | `nosniff` | The browser guessing a file type and running it as a script |
+| `X-Frame-Options` | `DENY` | Clickjacking (old browsers; the CSP covers the rest) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Leaking full URLs to other sites |
+| `Permissions-Policy` | `geolocation=(), camera=(), microphone=()` | Unused browser features |
+| `Cross-Origin-Opener-Policy`, `-Embedder-Policy`, `-Resource-Policy` | `same-origin`, `require-corp`, `same-origin` | Cross-origin leaks; safe because the app loads only same-origin resources |
+
+`server_tokens off` hides the nginx version. The client image uses `nginxinc/nginx-unprivileged`, so nginx runs as user `nginx` on port 8080, and the API container runs as `node`. The CSP has no `'unsafe-inline'`, which works because the client loads no inline scripts and no third-party resources. Any new external resource has to be added to the policy on purpose.
 
 ## Scanning in the pipeline
 
-The CI workflow ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) has four jobs: quality (typecheck, lint, format check, unit tests), build, integration (API tests against real Postgres and Mongo, which include the security tests above) and image. The security tests run on every push and turn the job red if a fix is removed. There is **no dependency or secret scanning job** yet (for example `npm audit` or CodeQL), so A03 is not covered automatically.
+The CI workflow ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) has the jobs quality (typecheck, lint, format check, unit tests), build, integration (API tests against real Postgres and Mongo, which include the security tests above), image and **`Säkerhet`**. The security tests run on every pull request and push and turn the job red if a fix is removed.
+
+`Säkerhet` runs, in this order: `npm audit --omit=dev --audit-level=high`, a Trivy repository scan (vulnerable dependencies, leaked secrets, Dockerfile mistakes), `docker compose up -d --build --wait`, a Trivy scan of the built `api` and `client` images, and an OWASP ZAP baseline scan of the running app. Each step fails the job on high or critical findings. Exceptions live in [`.trivyignore`](../.trivyignore) and [`.zap/rules.tsv`](../.zap/rules.tsv), each with a written reason, and a leaked secret is never ignored. See [`pipeline.md`](pipeline.md) for how to read a failure and add an exception.
 
 ## Known limitations
 
@@ -89,8 +102,10 @@ These are left on purpose or not done yet:
 - **No rate limiting** on login and registration, so passwords can be guessed by a script.
 - **Security events are not logged** (failed logins, 401 / 403, validation errors), and there are no alerts.
 - **Tokens cannot be revoked.** A stolen token works until it expires after 1 hour.
-- **No security headers** in nginx (CSP and others).
-- **Dependencies have known vulnerabilities** (`npm audit`: 8, one critical) and are not scanned in CI.
+- **The CSP is strict and untested against future features.** Anything loaded from another origin (fonts, analytics, an image CDN) is blocked until it is added to `client/security-headers.conf`.
+- **Moderate and development-only vulnerabilities remain** (`dompurify`, `qs`, `express`, and `vitest` with its helpers). They do not fail the `Säkerhet` gate, which only stops high and critical findings in production dependencies and images.
+- **The ZAP baseline scan is passive.** It checks headers and responses of the running app but does not attack it or log in, so authenticated pages are not scanned.
+- **The client image uses nginx `mainline`**, because `stable` still had critical nginx findings when this was written. Images are rebuilt from base-image tags, not pinned digests.
 - **Only two roles**, and tours, logs and photo lists are readable by anyone without logging in.
 - **`unhandledRejection` is swallowed** in `app.js` instead of failing fast.
 - **The `cors` package is still listed** in `api/package.json` although it is no longer used.
