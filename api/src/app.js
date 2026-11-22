@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { ZodError } from 'zod';
 import { config } from './config.js';
 import { authRouter } from './routes/auth.js';
@@ -18,7 +17,6 @@ if (!config.jwtSecret) {
 
 const app = express();
 
-app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 // GraphQL endpoint
 app.use(yoga.graphqlEndpoint, yoga);

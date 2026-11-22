@@ -197,6 +197,78 @@ describe('A01 Broken Access Control – vems tur är det?', () => {
   });
 });
 
+// #144: PUT /api/guides/:id – bara en inloggad redaktör får redigera, och indatan valideras.
+describe('A01 Broken Access Control – redigera guider (#144)', () => {
+  const validBody = { title: 'Ny titel #144', region: 'Lappland', difficulty: 'medel', lengthKm: 12, bodyHtml: '<p>Text</p>', published: true };
+  const firstGuide = async () => (await pool.query('select * from guides order by id limit 1')).rows[0];
+  const editor = async () => (await pool.query("select id, email, role from users where role = 'editor' limit 1")).rows[0];
+  const member = async () => (await pool.query("select id, email, role from users where role = 'member' limit 1")).rows[0];
+
+  it('utan token ger 401 och guiden är oförändrad', async () => {
+    const guide = await firstGuide();
+    const res = await api(`/api/guides/${guide.id}`, { method: 'PUT', body: validBody });
+    expect(res.status).toBe(401);
+    expect((await firstGuide()).title).toBe(guide.title);
+  });
+
+  it('som medlem ger 403 och guiden är oförändrad', async () => {
+    const guide = await firstGuide();
+    const res = await api(`/api/guides/${guide.id}`, { method: 'PUT', body: validBody, token: sign(await member()) });
+    expect(res.status).toBe(403);
+    expect((await firstGuide()).title).toBe(guide.title);
+  });
+
+  it('en redaktör kan uppdatera en guide', async () => {
+    const guide = await firstGuide();
+    try {
+      const res = await api(`/api/guides/${guide.id}`, { method: 'PUT', body: validBody, token: sign(await editor()) });
+      expect(res.status).toBe(200);
+      expect((await res.json()).title).toBe('Ny titel #144');
+    } finally {
+      await pool.query('update guides set title=$1, region=$2, difficulty=$3, length_km=$4, body_html=$5, published=$6 where id=$7', [
+        guide.title, guide.region, guide.difficulty, guide.length_km, guide.body_html, guide.published, guide.id,
+      ]);
+    }
+  });
+
+  it('ogiltig indata ger 400 och guiden är oförändrad', async () => {
+    const guide = await firstGuide();
+    const res = await api(`/api/guides/${guide.id}`, {
+      method: 'PUT',
+      token: sign(await editor()),
+      body: { ...validBody, title: '', lengthKm: 'inte ett tal' },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('ogiltig indata');
+    expect((await firstGuide()).title).toBe(guide.title);
+  });
+
+  it('ett id som inte är ett tal ger 400', async () => {
+    const res = await api('/api/guides/abc', { method: 'PUT', body: validBody, token: sign(await editor()) });
+    expect(res.status).toBe(400);
+  });
+
+  it('en guide som inte finns ger 404', async () => {
+    const res = await api('/api/guides/999999', { method: 'PUT', body: validBody, token: sign(await editor()) });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('A02 Security Misconfiguration – CORS (#144)', () => {
+  it('en okänd origin får inte Access-Control-Allow-Origin: *', async () => {
+    const res = await fetch(`${base}/api/guides`, { headers: { origin: 'https://evil.example' } });
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('*');
+  });
+
+  it('preflight från en okänd origin får inte tillåtas med *', async () => {
+    const res = await fetch(`${base}/api/guides/1`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://evil.example', 'access-control-request-method': 'PUT' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('*');
+  });
+});
+
 describe('A05 Injection – sökningen', () => {
   it("ett citattecken i sökordet ger 200 och en tom lista, inte 500", async () => {
     const res = await api(`/api/guides/search?q=${encodeURIComponent("'")}`);
