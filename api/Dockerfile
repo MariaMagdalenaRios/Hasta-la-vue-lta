@@ -18,4 +18,6 @@ WORKDIR /app/api
 
 EXPOSE 4000
 
+USER node
+
 CMD ["node", "src/boot.js"]
