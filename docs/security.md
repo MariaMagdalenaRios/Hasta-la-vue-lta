@@ -108,6 +108,5 @@ These are left on purpose or not done yet:
 - **The client image uses nginx `mainline`**, because `stable` still had critical nginx findings when this was written. Images are rebuilt from base-image tags, not pinned digests.
 - **Only two roles**, and tours, logs and photo lists are readable by anyone without logging in.
 - **`unhandledRejection` is swallowed** in `app.js` instead of failing fast.
-- **The `cors` package is still listed** in `api/package.json` although it is no longer used.
 - **No TLS configuration in the repo**; HTTPS depends on the hosting platform.
 - **`JWT_SECRET` is one shared secret.** If it leaks, anyone can sign tokens. There is no rotation procedure besides replacing the value.
