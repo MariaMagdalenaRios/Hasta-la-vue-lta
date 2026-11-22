@@ -122,6 +122,85 @@ jobs:
       - name: Run API integration tests
         run: npm run test:api
 
+  security:
+    name: Säkerhet
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Fixed project name so the image names are known: hlv-api and hlv-client.
+      COMPOSE_PROJECT_NAME: hlv
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Known vulnerabilities in production dependencies. Fails on high and critical.
+      - name: npm audit
+        run: npm audit --omit=dev --audit-level=high
+
+      # Vulnerable dependencies, leaked secrets and Dockerfile/config mistakes in the repo.
+      - name: Trivy repository scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      - name: Build and start the services
+        run: docker compose up -d --build --wait
+
+      # Vulnerabilities in the built images (base image packages and app packages).
+      - name: Trivy image scan (api)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hlv-api
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      - name: Trivy image scan (client)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: hlv-client
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      # Passive scan of the running app: missing headers, information leaks. It does not attack.
+      - name: OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: http://localhost:3001
+          rules_file_name: .zap/rules.tsv
+          allow_issue_writing: false
+          fail_action: true
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=100
+
+      - name: Stop the services
+        if: always()
+        run: docker compose down -v
+
   image:
     name: Image
     runs-on: ubuntu-latest

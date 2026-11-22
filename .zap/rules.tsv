@@ -1,0 +1,6 @@
+# OWASP ZAP baseline exceptions. Read by the "Säkerhet" job.
+# Columns, separated by a TAB: <rule id>	<IGNORE|WARN|FAIL>	<justification>
+# Every line needs a justification. Look rule ids up at https://www.zaproxy.org/docs/alerts/
+# Re-check each exception when the reason changes.
+10049	IGNORE	Storable and Cacheable Content. The client serves only the public app shell and static assets. User data comes from /api, which is never cached by nginx. Caching static assets is wanted for speed.
+10109	IGNORE	Modern Web Application. Informational: ZAP noticed the site is a single-page app. Not a vulnerability.

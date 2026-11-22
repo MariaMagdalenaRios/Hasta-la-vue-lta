@@ -16,10 +16,21 @@ WORKDIR /app/client
 RUN npm run build
 
 # ---------- Runtime stage ----------
-FROM nginx:1.27-alpine
+# The "unprivileged" image runs nginx as the non-root user `nginx` and listens
+# on 8080, because a non-root user cannot bind port 80.
+# mainline, not stable: the stable line (1.30.6) still had critical nginx CVEs
+# fixed in 1.30.7 when this was written. Switch back to stable when it catches up.
+FROM nginxinc/nginx-unprivileged:mainline-alpine
+
+# apk needs root, so switch for this one step and back again
+USER root
+# Pull in security fixes released after the base image was built
+RUN apk upgrade --no-cache
+USER nginx
 
 ENV API_UPSTREAM=http://api:4000
 COPY client/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY client/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/client/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080

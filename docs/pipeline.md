@@ -8,9 +8,11 @@ flowchart LR
     PR --> Q[Kvalitet]
     PR --> BU[Bygg]
     PR --> I[Integration]
+    PR --> SEK[Säkerhet]
     Q --> S{alla gröna?}
     BU --> S
     I --> S
+    SEK --> S
     S -->|nej| F[fixa, pusha igen]
     S -->|ja| IM[Image]
     IM --> M[merge till main]
@@ -32,6 +34,7 @@ flowchart LR
 - **Test:** kör Vitest och kontrollerar att testerna passerar.
 - **Build:** kontrollerar att Vue-klienten kan byggas för produktion utan byggfel.
 - **Integration:** startar riktiga PostgreSQL- och MongoDB-tjänster, seedar databaserna, migrerar turloggarna och kör API-testerna mot båda databaserna.
+- **Säkerhet:** letar efter kända sårbarheter i beroenden och images, läckta hemligheter och osäkra inställningar, och skannar den körande appen. Se avsnittet [Säkerhet](#säkerhet).
 
 ## Integration
 
@@ -72,11 +75,14 @@ Branch protection för `main` kräver att följande checks är gröna innan en p
 - **Bygg**
 - **Integration**
 - **Image**
+- **Säkerhet**
 
 Deploy är inte en obligatorisk branch protection-check eftersom jobbet
 endast körs efter push till `main` och hoppas över för pull requests.
-Det är därför Kvalitet, Bygg, Integration och Image som måste vara gröna
+Det är därför Kvalitet, Bygg, Integration, Image och Säkerhet som måste vara gröna
 för att en pull request ska kunna mergas.
+
+`Säkerhet` måste läggas till av en admin under Settings → Branches → regeln för `main` → Require status checks. Jobbet måste ha körts minst en gång innan det går att välja i listan.
 
 `Image` väntar på att Kvalitet, Bygg och Integration har lyckats. På pull requests byggs images utan att publiceras. På pushes till `main` publiceras de till GHCR.
 
@@ -143,6 +149,57 @@ Tiderna är steget "Install dependencies" (`npm ci`) i varje jobb.
 Den första körningen på PR:en ([run 41315344670](https://github.com/1sa1asdev/Hasta-la-vue-lta/actions/runs/41315344670), `ad2b0bf`) tog 45 s, 32 s och 28 s. Det var troligen en kall npm-cache efter ändringen i `package-lock.json` (inte verifierat i loggarna), så den används inte som "efter"-värde. Att ta bort `web/` gav ingen mätbar skillnad i `npm ci`-tid på CI.
 
 Lokalt tog `npm ci` 6 s efter borttagningen (823 paket). Det är inte jämförbart med CI-tiderna och används inte som "efter"-värde.
+
+## Säkerhet
+
+Jobbet `Säkerhet` körs på varje pull request mot `main` och vid varje push till `main`, parallellt med Kvalitet, Bygg och Integration. Det ska vara en obligatorisk check för att merga till `main`. Ett fel i jobbet stoppar mergen.
+
+### Steg
+
+1. **`npm audit --omit=dev --audit-level=high`** – kända sårbarheter i produktionsberoenden. Jobbet faller vid `high` och `critical`. Utvecklingsverktyg som `vitest` ingår inte, eftersom de inte levereras till användarna.
+2. **Trivy repository scan** (`scan-type: fs`) – sårbara beroenden, läckta hemligheter och felkonfigurationer i Dockerfiles. Faller vid `HIGH` och `CRITICAL`. Sårbarheter utan tillgänglig fix (`ignore-unfixed`) räknas inte.
+3. **`docker compose up -d --build --wait`** – bygger och startar hela stacken. `--wait` väntar på att alla tjänster är friska, vilket kräver healthchecks. `api` och `client` har egna healthchecks i `compose.yaml`.
+4. **Trivy image scan** av `hlv-api` och `hlv-client` – sårbarheter i basimagens paket och i apparna. Projektnamnet är satt till `hlv` med `COMPOSE_PROJECT_NAME` så att image-namnen är kända.
+5. **OWASP ZAP baseline** mot `http://localhost:3001` – en passiv skanning av den körande appen. Den letar efter saknade säkerhetsheaders och informationsläckor, men attackerar inte appen och loggar inte in.
+6. **Städning** – tjänsternas loggar skrivs ut vid fel, och `docker compose down -v` körs alltid.
+
+### Vad som är åtgärdat
+
+- Produktionsberoenden uppdaterade (`drizzle-orm`, `proxy-addr`, `body-parser`, `source-map-js`, `vite`).
+- API-containern kör som användaren `node` (`USER node`), och npm tas bort ur slutimagen eftersom appen startas med `node`.
+- Klienten använder `nginxinc/nginx-unprivileged` och kör som användaren `nginx` på port 8080. `compose.yaml` mappar `3001:8080` och `infra/azure/staging.yaml` har `targetPort: 8080`.
+- Basimages uppdateras med `apk upgrade` vid bygget.
+- nginx skickar säkerhetsheaders i alla `location`. Se `docs/security.md`.
+
+### Undantag
+
+Det som inte går att åtgärda ska skrivas in med en motivering:
+
+- **`.trivyignore`** – ett id per rad (`CVE-…`, `GHSA-…` eller ett misconfig-id som `DS-0002`), med en kommentarrad ovanför som förklarar varför, vem som beslutade och när det ska ses över.
+- **`.zap/rules.tsv`** – `<regel-id>`, `IGNORE`, `WARN` eller `FAIL`, och en motivering, avgränsade med tabbtecken.
+
+Aktuella undantag (ZAP):
+
+| Regel | Åtgärd | Motivering |
+|---|---|---|
+| 10049 Storable and Cacheable Content | `IGNORE` | Klienten serverar bara den publika appskalet och statiska filer. Användardata kommer från `/api`. |
+| 10109 Modern Web Application | `IGNORE` | Informativ: ZAP noterade att sidan är en SPA. Inte en sårbarhet. |
+
+`.trivyignore` har inga undantag. **En läckt hemlighet får aldrig ignoreras eller checkas in.** Rotera den i stället.
+
+### Läsa ett fel
+
+- `npm audit`: kör `npm audit --omit=dev` lokalt, och fixa med `npm update <paket>` eller en uppgradering. Kör alltid både `npm test` och `npm run test:api` efter en beroendeändring.
+- Trivy: loggen visar paket, installerad version och versionen med fix. Uppdatera paketet eller basimagen. Skriv bara till `.trivyignore` om det inte går, och med motivering.
+- ZAP: rapporten laddas upp som artefakten `zap_scan` i körningen. Regel-id:n slås upp på <https://www.zaproxy.org/docs/alerts/>.
+
+Samma kontroller kan köras lokalt med Docker (`aquasec/trivy` och `ghcr.io/zaproxy/zaproxy`) innan man pushar.
+
+### Verifiering
+
+- En testpull request med ett avsiktligt säkerhetsfel ska få `Säkerhet` att bli rött. Länken till den pull requesten sparas för inlämningen.
+- `Säkerhet` ska vara grönt på `main`.
+- `curl -I` mot staging ska visa `Content-Security-Policy` och `X-Content-Type-Options: nosniff`.
 
 ## Docker images och publicering
 
