@@ -1,0 +1,12 @@
+# Trivy exceptions. Read by the "Säkerhet" job in .github/workflows/ci.yml.
+#
+# Rules for adding a line:
+#   1. One finding id (CVE-..., GHSA-... or a misconfig id like DS-0002) per line.
+#   2. A comment line above it with: why it does not apply or cannot be fixed,
+#      who decided, and when to look at it again.
+#   3. NEVER add a leaked secret here. Rotate the secret instead.
+#
+# Example (do not uncomment):
+#   # nginx base image, no fixed version yet. Not reachable: we never serve
+#   # untrusted multipart uploads. Re-check 2026-12-15.
+#   CVE-0000-00000

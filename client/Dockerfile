@@ -16,7 +16,10 @@ WORKDIR /app/client
 RUN npm run build
 
 # ---------- Runtime stage ----------
-FROM nginx:1.27-alpine
+FROM nginx:stable-alpine
+
+# Pull in security fixes released after the base image was built
+RUN apk upgrade --no-cache
 
 ENV API_UPSTREAM=http://api:4000
 COPY client/nginx.conf.template /etc/nginx/templates/default.conf.template
