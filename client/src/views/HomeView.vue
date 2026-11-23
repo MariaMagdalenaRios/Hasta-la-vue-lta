@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { useQuery } from '@urql/vue'
 import { graphql } from '../gql'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useAuthStore } from '../stores/auth'
+import NoticeList from '../components/NoticeList.vue'
 
 const HomeDocument = graphql(/* GraphQL */ `
-  query Home {
+  query Home($preview: Boolean = false) {
     guides {
       slug
       title
@@ -17,10 +19,38 @@ const HomeDocument = graphql(/* GraphQL */ `
       title
       distanceM
     }
+    notices(preview: $preview) {
+      id
+      title
+      level
+      status
+      guideSlug
+      body {
+        runs {
+          text
+          bold
+          italic
+          href
+        }
+      }
+    }
   }
 `)
 
-const { data, fetching, error } = useQuery({ query: HomeDocument })
+const authStore = useAuthStore()
+const preview = ref(false)
+
+const isEditor = computed(() => authStore.user?.role === 'editor')
+
+// Only editors can turn preview on; the server checks the role again and answers FORBIDDEN otherwise.
+const previewEnabled = computed(() => isEditor.value && preview.value)
+
+const { data, fetching, error } = useQuery({
+  query: HomeDocument,
+  variables: computed(() => ({ preview: previewEnabled.value })),
+  // Drafts change while the editor writes, so preview always asks the server.
+  requestPolicy: computed(() => (previewEnabled.value ? 'network-only' : 'cache-first')),
+})
 const popularGuides = computed(() => data.value?.guides.slice(0, 6) ?? [])
 const regionCount = computed(
   () => new Set(data.value?.guides.map((guide) => guide.region) ?? []).size,
@@ -28,6 +58,11 @@ const regionCount = computed(
 </script>
 
 <template>
+  <label v-if="isEditor" class="preview-toggle">
+    <input v-model="preview" type="checkbox" />
+    Visa utkast (förhandsgranskning)
+  </label>
+
   <p v-if="error" role="alert">Kunde inte hämta startsidan: {{ error.message }}</p>
   <p v-else-if="fetching || !data">Laddar…</p>
   <div v-else>
@@ -35,6 +70,8 @@ const regionCount = computed(
       <h1>Hitta din nästa tur</h1>
       <p>{{ data.guides.length }} guider i {{ regionCount }} landskap.</p>
     </section>
+
+    <NoticeList :notices="data.notices" />
 
     <h2>Populärast just nu</h2>
     <ul class="list">
@@ -65,6 +102,12 @@ const regionCount = computed(
 <style scoped>
 .hero {
   padding: 24px 0;
+}
+.preview-toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
 }
 .list {
   padding-left: 18px;
