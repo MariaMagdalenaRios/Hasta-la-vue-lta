@@ -102,6 +102,7 @@ export const publishedNotices = async () => {
 // finns den men med annat innehåll är den ändrad men inte publicerad (changed). Cachas aldrig –
 // redaktören vill se det hen just skrev.
 export const previewNotices = async () => {
+  if (!cmsConfigured() || !config.cmsPreviewToken) return [];
   const [latest, published] = await Promise.all([entries('notis', { preview: true }), entries('notis')]);
   const publishedFields = new Map(published.map((entry) => [entry.sys.id, JSON.stringify(entry.fields)]));
   return latest.map((entry) => {

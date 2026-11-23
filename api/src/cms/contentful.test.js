@@ -120,6 +120,24 @@ describe('publicerade notiser', () => {
 });
 
 describe('förhandsgranskningen', () => {
+  it('utan konfigurerat CMS returnerar en tom lista utan anrop', async () => {
+    Object.assign(config, { cmsSpaceId: '', cmsDeliveryToken: '', cmsPreviewToken: '' });
+    const fetch = fakeContentful([]);
+    vi.stubGlobal('fetch', fetch);
+
+    expect(await previewNotices()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('utan preview-nyckel returnerar en tom lista utan anrop', async () => {
+    config.cmsPreviewToken = '';
+    const fetch = fakeContentful([]);
+    vi.stubGlobal('fetch', fetch);
+
+    expect(await previewNotices()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('hämtar från preview-API:et med preview-nyckeln och säger vad som är utkast och vad som är ändrat', async () => {
     const utkast = entry('n3', { rubrik: 'Ny led i vår', niva: 'info' }); // aldrig publicerad, och utan text än
     const andrad = entry('n2', { ...valkommen.fields, rubrik: 'Välkommen tillbaka' }); // publicerad, sedan ändrad
