@@ -15,4 +15,9 @@ export const config = {
   uploadDir: './uploads',
   imageFunctionUrl: process.env.IMAGE_FUNCTION_URL,
   imageFunctionKey: process.env.IMAGE_FUNCTION_KEY,
+  cmsSpaceId: process.env.CONTENTFUL_SPACE_ID ?? '',
+  cmsEnvironment: process.env.CONTENTFUL_ENVIRONMENT ?? 'master',
+  cmsDeliveryToken: process.env.CONTENTFUL_DELIVERY_TOKEN ?? '',
+  cmsPreviewToken: process.env.CONTENTFUL_PREVIEW_TOKEN ?? '',
+  cmsCacheSeconds: Number(process.env.CMS_CACHE_SECONDS ?? 60),
 };

@@ -54,6 +54,12 @@ services:
       IMAGE_FUNCTION_URL: http://host.docker.internal:7071/api/process-image
       # Local-only fallback. Real environments must provide their own JWT_SECRET.
       JWT_SECRET: ${JWT_SECRET:-local-dev-only-do-not-use-elsewhere}
+      # CMS is optional: empty values switch it off and the app runs without notices.
+      CONTENTFUL_SPACE_ID: ${CONTENTFUL_SPACE_ID:-}
+      CONTENTFUL_ENVIRONMENT: ${CONTENTFUL_ENVIRONMENT:-master}
+      CONTENTFUL_DELIVERY_TOKEN: ${CONTENTFUL_DELIVERY_TOKEN:-}
+      CONTENTFUL_PREVIEW_TOKEN: ${CONTENTFUL_PREVIEW_TOKEN:-}
+      CMS_CACHE_SECONDS: ${CMS_CACHE_SECONDS:-60}
     expose:
       - "4000"
     # `docker compose up --wait` needs this to know when the API is really
