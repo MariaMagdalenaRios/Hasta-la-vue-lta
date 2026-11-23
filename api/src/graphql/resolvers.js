@@ -22,6 +22,18 @@ export const resolvers = {
       return result.rows[0] ?? null;
     },
 
+    // Notices come from the CMS (cms/contentful.js), not the database. Drafts are
+    // editor-only: the role is checked here, on the server, which also holds the preview token.
+    notices: async (_parent, { preview }, { user, cms }) => {
+      if (!preview) return cms.notices();
+      if (user?.role !== 'editor') {
+        throw new GraphQLError('Preview requires the editor role', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+      return cms.previewNotices();
+    },
+
     tours: async (_parent, { limit }, context) => {
       const safeLimit = Math.min(
         Math.max(Number.isInteger(limit) ? limit : 50, 0),
@@ -49,6 +61,9 @@ export const resolvers = {
     bodyHtml: (guide) => guide.body_html,
     heroImage: (guide) => guide.hero_image,
     updatedAt: (guide) => guide.updated_at,
+    // The guide lives in Postgres, the notice in the CMS. They meet here via the slug.
+    notices: async (guide, _args, { cms }) =>
+      (await cms.notices()).filter((notice) => notice.guideSlug === guide.slug),
   },
 
   User: {
