@@ -116,3 +116,35 @@ Until then `guideSlug` keeps working and this section describes the target, not 
 ## Left out on purpose
 
 The ticket lists `duration` as an example field. The model has none: the `guides` table has `length_km` but no duration column, so there is no data to move. A duration field can be added later without changing the rest of the model.
+
+## Migrating the guides (#161)
+
+`npm run migrate:guides` copies every row in the Postgres `guides` table to the `guide` content type in Contentful. The code is in `api/src/cms/` (`htmlToRichText.js` converts `body_html`, `migrateGuides.js` does the sync).
+
+**Set up once**
+
+1. `CONTENTFUL_SPACE_ID` in `.env`.
+2. A token that can write. Either put a CMA token in `CONTENTFUL_MANAGEMENT_TOKEN` in `.env`, or leave it empty and run `npx contentful-cli login`, which saves a token for the script to use. A token already set in the terminal session wins over `.env`, so `unset CONTENTFUL_MANAGEMENT_TOKEN` if the script says 401 after you changed it.
+3. The Postgres container running (`docker compose up -d postgres`).
+
+**Run**
+
+```
+npm run migrate:guides -- --dry-run   # reads Contentful, writes nothing, prints what would happen
+npm run migrate:guides                # does it
+```
+
+Each guide gets one log line: `created`, `updated` or `unchanged`, and `publish published`, `unpublished` or `none`. A guide that fails is logged and the script goes on with the next one. The exit code is 1 if any guide failed. The last line is a summary.
+
+**What it does**
+
+- **Finds a guide by `slug`.** A new guide gets the entry ID `guide-<slug>`. Running the script again finds the entry and creates nothing. If nothing changed, it writes nothing, so a second run ends with `0 created, 0 updated, 40 unchanged`.
+- **Publication status follows Postgres.** `published = true` is published in Contentful, `false` stays a draft. A guide that is already published in Contentful but unpublished in Postgres is unpublished.
+- **Keeps what it does not manage.** On update it merges into the existing fields, so a `heroImage` that an editor added in Contentful is not removed.
+- **Rate limits.** At most one request every 150 ms (about 6.7 per second, under the limit of 7 writes per second). On a 429 response it waits for the time in `X-Contentful-RateLimit-Reset` and retries, up to 5 times.
+- **Rich text.** HTML the content type does not allow, for example `<ol>` or `<table>`, is logged as a `warning`. The text is kept. The 40 current guides give no warnings.
+
+**Not part of this migration**
+
+- `heroImage` is left empty. `hero_image` holds filenames and the image files are not in the repo. Add the images in Contentful by hand, or write a separate upload step when the files turn up.
+- The `contentful_id` column in Postgres (see "Linking the two halves") is not added. The entry ID is `guide-<slug>` for all migrated guides, so it can be filled in from the slug later.
