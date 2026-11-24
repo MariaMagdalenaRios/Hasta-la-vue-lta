@@ -148,3 +148,7 @@ Each guide gets one log line: `created`, `updated` or `unchanged`, and `publish 
 
 - `heroImage` is left empty. `hero_image` holds filenames and the image files are not in the repo. Add the images in Contentful by hand, or write a separate upload step when the files turn up.
 - The `contentful_id` column in Postgres (see "Linking the two halves") is not added. The entry ID is `guide-<slug>` for all migrated guides, so it can be filled in from the slug later.
+
+**Seed data and the shared space**
+
+The script finds guides by `slug`, and the slugs come from `api/src/db/seed.js`. The seed uses a fixed random seed, so every developer who runs `npm run seed` gets the same 40 guides and slugs, and running the migration from any seeded database matches the entries that already exist. Do not run the script against the shared space from a database that was not created by `npm run seed`: none of its slugs would match, and it would create duplicates. Changing the seed value or the way titles are made changes every slug, so the entries in Contentful have to be deleted and migrated again.
