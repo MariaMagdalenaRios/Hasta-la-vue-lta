@@ -7,7 +7,17 @@ const DIFFICULTY = ['lätt', 'medel', 'svår'];
 const FIRST = ['Anna', 'Erik', 'Sara', 'Johan', 'Maria', 'Ali', 'Nina', 'Oskar', 'Lisa', 'Pontus', 'Ida', 'Hassan'];
 const LAST = ['Berg', 'Lind', 'Ek', 'Nord', 'Sund', 'Holm', 'Falk', 'Ahlgren', 'Osman', 'Waller', 'Ryd', 'Kvist'];
 
-const rnd = (n) => Math.floor(Math.random() * n);
+// A fixed seed gives every developer the same guides, titles and slugs. The CMS migration finds
+// guides by slug (api/src/cms/migrateGuides.js), so a random seed would create duplicates.
+const SEED = 20261124;
+const mulberry32 = (a) => () => {
+  a = (a + 0x6d2b79f5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+let random = mulberry32(SEED);
+const rnd = (n) => Math.floor(random() * n);
 const pick = (arr) => arr[rnd(arr.length)];
 
 const bodyHtml = (title, region) => `
@@ -28,6 +38,7 @@ export const resetDatabase = async () => {
 };
 
 export const seedDatabase = async () => {
+  random = mulberry32(SEED); // the same sequence on every run
   await createTables();
 
   const result = await pool.query('select count(*)::int as count from users');
@@ -63,7 +74,7 @@ export const seedDatabase = async () => {
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
       [
         title.toLowerCase().replace(/[åä]/g, 'a').replace(/ö/g, 'o').replace(/\s+/g, '-'), title, region, pick(DIFFICULTY),
-        Math.round((3 + Math.random() * 25) * 10) / 10,
+        Math.round((3 + random() * 25) * 10) / 10,
         bodyHtml(title, region), `hero-${i + 1}.jpg`, i % 9 !== 0, userIds[0],
       ],
     );
@@ -77,9 +88,9 @@ export const seedDatabase = async () => {
       `insert into tours (user_id, guide_id, title, started_at, distance_m, notes)
        values ($1,$2,$3,$4,$5,$6) returning id`,
       [
-        pick(userIds), Math.random() > 0.25 ? pick(guideIds) : null,
+        pick(userIds), random() > 0.25 ? pick(guideIds) : null,
         `Tur ${i + 1}`, started, 2000 + rnd(30000),
-        Math.random() > 0.6 ? 'Blött väder, mycket folk vid rastplatsen.' : null,
+        random() > 0.6 ? 'Blött väder, mycket folk vid rastplatsen.' : null,
       ],
     );
     const tourId = res.rows[0].id;
@@ -92,7 +103,7 @@ export const seedDatabase = async () => {
       values.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6})`);
       params.push(
         tourId, new Date(started.getTime() + p * 300000),
-        58 + Math.random() * 10, 12 + Math.random() * 8,
+        58 + random() * 10, 12 + random() * 8,
         100 + rnd(900), 90 + rnd(70),
       );
     }

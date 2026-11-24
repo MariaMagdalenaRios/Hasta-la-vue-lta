@@ -13,6 +13,7 @@
     "dev:client": "npm run dev --workspace=client",
     "seed": "npm run seed --workspace=api",
     "migrate:logs": "npm run migrate:logs --workspace=api",
+    "migrate:guides": "npm run migrate:guides --workspace=api --",
     "pr": "node tools/pr-builder/src/cli.js",
     "pr:test": "node --test tools/pr-builder/test",
     "typecheck": "npm run codegen --workspace=client && npm run typecheck --workspace=client && npm run typecheck --workspace=api",

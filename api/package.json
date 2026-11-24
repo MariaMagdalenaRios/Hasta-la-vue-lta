@@ -11,6 +11,7 @@
     "test:integration": "node --test test/graphql.integration.test.js",
     "seed": "node src/db/seed-cli.js",
     "migrate:logs": "node src/db/migrate-logs.js",
+    "migrate:guides": "node src/cms/migrate-guides-cli.js",
     "typecheck": "tsc --noEmit",
     "mongo-smoke": "node src/db/mongo-smoke.js"
   },
