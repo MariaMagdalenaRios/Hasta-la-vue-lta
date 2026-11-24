@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import type { Guide } from '@utpost/shared'
 import GuideDetailView from './GuideDetailView.vue'
 import { stubFetch, stubFetchNetworkError } from '../test/fetch'
+import { createUrqlPlugins } from '../test/urql'
 
 const guide: Guide = {
   id: 3,
@@ -26,7 +27,7 @@ const renderView = async (path = '/guider/kebnekaise') => {
   })
   router.push(path)
   await router.isReady()
-  return render(GuideDetailView, { global: { plugins: [router] } })
+  return render(GuideDetailView, { global: { plugins: [router, ...createUrqlPlugins()] } })
 }
 
 describe('GuideDetailView', () => {
@@ -59,6 +60,54 @@ describe('GuideDetailView', () => {
     await renderView()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('404')
+  })
+
+  it('shows the notices for this guide from GraphQL', async () => {
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
+    // Typed like fetch so the test can read the request body; only the URL decides the answer.
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>((url) =>
+      Promise.resolve(
+        url.endsWith('/graphql')
+          ? json({
+              data: {
+                guide: {
+                  notices: [
+                    {
+                      id: 'n1',
+                      title: 'Leden är avstängd',
+                      level: 'warning',
+                      status: 'published',
+                      guideSlug: 'kebnekaise',
+                      body: [
+                        {
+                          runs: [
+                            {
+                              text: 'Bron vid Singi är trasig.',
+                              bold: false,
+                              italic: false,
+                              href: null,
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            })
+          : json(guide),
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await renderView()
+
+    expect(await screen.findByRole('heading', { name: 'Leden är avstängd' })).toBeInTheDocument()
+    expect(screen.getByText('Bron vid Singi är trasig.')).toBeInTheDocument()
+    const graphqlCall = fetchMock.mock.calls.find(([url]) => url.endsWith('/graphql'))
+    expect(JSON.parse(String(graphqlCall?.[1]?.body)).variables).toEqual({
+      slug: 'kebnekaise',
+    })
   })
 
   it('shows an error when the network is down', async () => {

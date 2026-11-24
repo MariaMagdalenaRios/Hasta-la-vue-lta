@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/vue'
 import HomeView from './HomeView.vue'
 import { stubFetch } from '../test/fetch'
 import { createUrqlPlugins } from '../test/urql'
+import { createPinia } from 'pinia'
 
 const guides = [
   {
@@ -25,7 +26,7 @@ const guides = [
 const renderView = () =>
   render(HomeView, {
     global: {
-      plugins: createUrqlPlugins(),
+      plugins: [createPinia(), ...createUrqlPlugins()],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
     },
   })
@@ -36,6 +37,7 @@ describe('HomeView', () => {
       data: {
         guides,
         tours: [{ id: '7', title: 'Toppturen', distanceM: 12345 }],
+        notices: [],
       },
     })
 
