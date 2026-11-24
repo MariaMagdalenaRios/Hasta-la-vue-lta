@@ -11,6 +11,34 @@ export const typeDefs = /* GraphQL */ `
     heroImage: String
     published: Boolean!
     updatedAt: String!
+    "Editorial notices for this guide, fetched from the CMS"
+    notices: [Notice!]!
+  }
+
+  "A piece of text inside a paragraph. Rich text as data: the client decides how bold text and links look."
+  type TextRun {
+    text: String!
+    bold: Boolean!
+    italic: Boolean!
+    "Where the run links to, if it is a link"
+    href: String
+  }
+
+  type Paragraph {
+    runs: [TextRun!]!
+  }
+
+  "An editorial notice. The content lives in the CMS, not in the database."
+  type Notice {
+    id: ID!
+    title: String!
+    "info or warning: what the notice IS, not what colour it has"
+    level: String!
+    body: [Paragraph!]!
+    "Which guide the notice applies to. Null means it applies to all of Utpost"
+    guideSlug: String
+    "published, draft or changed. Anything other than published is only visible in preview"
+    status: String!
   }
 
   type User {
@@ -62,6 +90,8 @@ export const typeDefs = /* GraphQL */ `
   type Query {
     guides: [Guide!]!
     guide(slug: String!): Guide
+    "Editorial notices. preview: true also shows drafts and requires the editor role"
+    notices(preview: Boolean = false): [Notice!]!
     tours(limit: Int): [Tour!]!
     tour(id: ID!): Tour
   }
