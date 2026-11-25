@@ -14,18 +14,34 @@ const HOSTS = { published: 'https://cdn.contentful.com', preview: 'https://previ
 // Så kör pipelinen (inga CMS-hemligheter i testerna) och den som inte har satt upp ett space än.
 export const cmsConfigured = () => Boolean(config.cmsSpaceId && config.cmsDeliveryToken);
 
-const entries = async (contentType, { preview = false } = {}) => {
+
+
+
+
+const entries = async (contentType, { preview = false, params = {}, includeAssets = false } = {}) => {
   const host = preview ? HOSTS.preview : HOSTS.published;
   const token = preview ? config.cmsPreviewToken : config.cmsDeliveryToken;
-  const url =
-    `${host}/spaces/${config.cmsSpaceId}/environments/${config.cmsEnvironment}/entries` +
-    `?content_type=${contentType}&order=-sys.updatedAt&limit=100`;
-  // Nyckeln går i en header, inte i adressen – adresser hamnar i loggar.
-  // Fem sekunder räcker: hellre en startsida utan notiser än en startsida som hänger.
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
+  const url = new URL(
+    `${host}/spaces/${config.cmsSpaceId}/environments/${config.cmsEnvironment}/entries`,
+  );
+
+  url.searchParams.set('content_type', contentType);
+  url.searchParams.set('order', '-sys.updatedAt');
+  url.searchParams.set('limit', '100');
+
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(5000),
+  });
   if (!res.ok) throw new Error(`Contentful svarade ${res.status}`);
-  return (await res.json()).items;
+  const data = await res.json();
+  return includeAssets ? data : data.items ?? [];
 };
+
 
 // En länk som redaktören skrivit in ska gå till en webbadress eller en sida hos oss. Allt annat
 // (javascript:, data:) blir ingen länk alls – href är också ett ställe där skript kan smita in (M8, A05).
@@ -51,6 +67,57 @@ export const toParagraphs = (document) => {
     .filter((paragraph) => paragraph.runs.length > 0);
 };
 
+
+const toRichTextBlocks = (document) => {
+  const has = (node, mark) => (node.marks ?? []).some((m) => m.type === mark);
+
+  const runs = (nodes, href = null) =>
+    (nodes ?? []).flatMap((node) => {
+      if (node.nodeType === 'text') {
+        return node.value
+          ? [{ text: node.value, bold: has(node, 'bold'), italic: has(node, 'italic'), href }]
+          : [];
+      }
+
+      if (node.nodeType === 'hyperlink') {
+        return runs(node.content, safeHref(node.data?.uri));
+      }
+
+      return [];
+    });
+
+  return (document?.content ?? []).flatMap((node) => {
+    if (['paragraph', 'heading-2', 'heading-3'].includes(node.nodeType)) {
+      const blockRuns = runs(node.content);
+      return blockRuns.length ? [{ type: node.nodeType, runs: blockRuns, items: [] }] : [];
+    }
+
+    if (node.nodeType === 'unordered-list') {
+      const items = (node.content ?? [])
+        .filter((item) => item.nodeType === 'list-item')
+        .map((item) => ({ runs: (item.content ?? []).flatMap((paragraph) => runs(paragraph.content)) }))
+        .filter((item) => item.runs.length);
+
+      return items.length ? [{ type: 'unordered-list', runs: [], items }] : [];
+    }
+
+    return [];
+  });
+};
+
+const richTextExcerpt = (blocks, maxLength = 180) =>
+  blocks
+    .flatMap((block) =>
+      block.type === 'unordered-list'
+        ? block.items.map((item) => item.runs.map((run) => run.text).join(' '))
+        : block.runs.map((run) => run.text).join(' '),
+    )
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+
+
 // Contentfuls post → schemats Notice. Fälten heter som redaktionen kallar dem (rubrik, niva);
 // schemat håller sig till engelska som resten av API:et. Ett utkast kan sakna fält – därav ??.
 const toNotice = (entry, status = 'published') => ({
@@ -62,6 +129,72 @@ const toNotice = (entry, status = 'published') => ({
   status,
 });
 
+
+const toGuide = (entry, assets = []) => {
+  const fields = entry.fields ?? {};
+  const body = toRichTextBlocks(fields.body);
+
+  const heroImageId = fields.heroImage?.sys?.id;
+  const asset = assets.find((item) => item.sys.id === heroImageId);
+  const imageUrl = asset?.fields?.file?.url;
+
+  return {
+    id: entry.sys.id,
+    slug: fields.slug ?? '',
+    title: fields.title ?? '',
+    region: fields.region ?? '',
+    difficulty: fields.difficulty ?? '',
+    lengthKm: Number(fields.lengthKm ?? 0),
+    body,
+    excerpt: richTextExcerpt(body),
+    heroImage: imageUrl ? `https:${imageUrl}` : null,
+    updatedAt: entry.sys.updatedAt ?? null,
+  };
+};
+
+const guideCache = new Map();
+const pendingGuides = new Map();
+
+export const guideBySlug = async (slug) => {
+  if (!cmsConfigured() || !slug) return null;
+
+  const cached = guideCache.get(slug);
+  if (cached && Date.now() - cached.at < config.cmsCacheSeconds * 1000) {
+    return cached.guide;
+  }
+
+  if (pendingGuides.has(slug)) return pendingGuides.get(slug);
+
+  const pending = (async () => {
+    try {
+      const result = await entries('guide', {
+        params: {
+          'fields.slug': slug,
+          limit: '1',
+          include: '1',
+        },
+        includeAssets: true,
+      });
+
+      const entry = result.items?.[0];
+      if (!entry) {
+        guideCache.set(slug, { at: Date.now(), guide: null });
+        return null;
+      }
+
+      const guide = toGuide(entry, result.includes?.Asset ?? []);
+      guideCache.set(slug, { at: Date.now(), guide });
+      return guide;
+    } catch (err) {
+      console.error(`cms: kunde inte hämta guide "${slug}" (${err.message})`);
+      return cached?.guide ?? null;
+    }
+  })().finally(() => pendingGuides.delete(slug));
+
+  pendingGuides.set(slug, pending);
+  return pending;
+};
+
 // Cachen: Contentful räknar varje anrop (gratisnivån har ett tak per månad), och en notis ändras
 // några gånger i veckan – inte 50 gånger i sekunden. Därför hämtar vi högst en gång i minuten och
 // svarar ur minnet däremellan. Priset: en publicerad ändring syns efter upp till en minut.
@@ -69,6 +202,8 @@ let cache = { at: 0, notices: null };
 let pending = null; // anropet till Contentful som pågår just nu, om något gör det
 export const clearCmsCache = () => {
   cache = { at: 0, notices: null };
+  guideCache.clear();
+  pendingGuides.clear();
 };
 
 const fetchNotices = async () => {
