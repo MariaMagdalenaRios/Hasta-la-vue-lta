@@ -7,7 +7,8 @@ export const typeDefs = /* GraphQL */ `
     region: String!
     difficulty: String!
     lengthKm: Float!
-    bodyHtml: String!
+    body: [RichTextBlock!]!
+    excerpt: String!
     heroImage: String
     published: Boolean!
     updatedAt: String!
@@ -25,6 +26,17 @@ export const typeDefs = /* GraphQL */ `
   }
 
   type Paragraph {
+    runs: [TextRun!]!
+  }
+
+  "A rich-text block from Contentful: paragraph, heading-2, heading-3 or unordered-list."
+  type RichTextBlock {
+    type: String!
+    runs: [TextRun!]!
+    items: [RichTextListItem!]!
+  }
+
+  type RichTextListItem {
     runs: [TextRun!]!
   }
 

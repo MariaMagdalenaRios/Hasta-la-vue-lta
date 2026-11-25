@@ -5,7 +5,7 @@ import { pool } from '../db/client.js';
 import { typeDefs } from './schema.js';
 import { resolvers } from './resolvers.js';
 import { createLoaders } from './loaders.js';
-import { publishedNotices, previewNotices } from '../cms/contentful.js';
+import { guideBySlug, publishedNotices, previewNotices } from '../cms/contentful.js';
 
 const schema = createSchema({
   typeDefs,
@@ -72,7 +72,7 @@ export const yoga = createYoga({
       db,
       loaders: createLoaders(db),
       // The CMS sits in the context next to the database. Resolvers don't know which CMS it is.
-      cms: { notices: publishedNotices, previewNotices },
+      cms: { guideBySlug, notices: publishedNotices, previewNotices },
     };
   },
 });

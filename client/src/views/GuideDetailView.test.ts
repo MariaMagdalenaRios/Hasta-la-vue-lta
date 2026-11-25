@@ -1,23 +1,49 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
-import type { Guide } from '@utpost/shared'
 import GuideDetailView from './GuideDetailView.vue'
 import { stubFetch, stubFetchNetworkError } from '../test/fetch'
 import { createUrqlPlugins } from '../test/urql'
 
-const guide: Guide = {
-  id: 3,
+const run = (
+  text: string,
+  marks: { bold?: boolean; italic?: boolean; href?: string | null } = {},
+) => ({
+  text,
+  bold: marks.bold ?? false,
+  italic: marks.italic ?? false,
+  href: marks.href ?? null,
+})
+const block = (type: string, ...runs: ReturnType<typeof run>[]) => ({ type, runs, items: [] })
+
+// The guide as the GraphQL API returns it: the body is rich text from Contentful.
+const guide = {
+  id: '3',
   slug: 'kebnekaise',
   title: 'Kebnekaise',
   region: 'Lappland',
   difficulty: 'medel',
-  length_km: 12,
-  body_html: '<p>Sveriges tak</p>',
-  hero_image: null,
-  published: true,
-  author_id: 1,
-  updated_at: '2026-01-01T00:00:00.000Z',
+  lengthKm: 12,
+  body: [
+    block('heading-2', run('Om leden')),
+    block(
+      'paragraph',
+      run('Sveriges '),
+      run('högsta', { bold: true }),
+      run(' topp, '),
+      run('ofta', { italic: true }),
+      run(' blåsigt.'),
+    ),
+    {
+      type: 'unordered-list',
+      runs: [],
+      items: [
+        { runs: [run('Buss 120')] },
+        { runs: [run('tidtabell', { href: 'https://utpost.se/buss' })] },
+      ],
+    },
+  ],
+  notices: [] as unknown[],
 }
 
 const renderView = async (path = '/guider/kebnekaise') => {
@@ -31,83 +57,82 @@ const renderView = async (path = '/guider/kebnekaise') => {
 }
 
 describe('GuideDetailView', () => {
-  it('fetches the guide from the slug in the URL and shows it', async () => {
-    const fetchMock = stubFetch(guide)
+  it('fetches the guide for the slug in the URL from GraphQL', async () => {
+    const fetchMock = stubFetch({ data: { guide } })
     await renderView()
 
-    await screen.findByRole('heading', { name: 'Kebnekaise' })
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/guides\/kebnekaise$/), {
-      headers: {},
-    })
+    await screen.findByRole('heading', { level: 1, name: 'Kebnekaise' })
     expect(screen.getByText('Lappland · medel · 12 km')).toBeInTheDocument()
-    expect(screen.getByText('Sveriges tak')).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/graphql$/)
+    const request = JSON.parse(String(init?.body))
+    expect(request.variables).toEqual({ slug: 'kebnekaise' })
+    expect(request.query).not.toContain('bodyHtml')
   })
 
-  it('removes scripts and event handlers from the guide body (debt item 3)', async () => {
+  it('renders the rich text body: headings, bold and italic text, lists and links', async () => {
+    stubFetch({ data: { guide } })
+    await renderView()
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Om leden' })).toBeInTheDocument()
+    expect(screen.getByText('högsta').tagName).toBe('STRONG')
+    expect(screen.getByText('ofta').tagName).toBe('EM')
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'tidtabell' })).toHaveAttribute(
+      'href',
+      'https://utpost.se/buss',
+    )
+  })
+
+  it('shows text that looks like HTML as text, never as markup', async () => {
     stubFetch({
-      ...guide,
-      body_html: '<p>Hej</p><img src="x" onerror="alert(1)"><script>alert(2)</script>',
+      data: {
+        guide: { ...guide, body: [block('paragraph', run('<img src=x onerror="alert(1)">'))] },
+      },
     })
     const { container } = await renderView()
 
-    await screen.findByText('Hej')
-    expect(container.querySelector('script')).toBeNull()
-    expect(container.querySelector('img')?.getAttribute('onerror')).toBeNull()
+    expect(await screen.findByText('<img src=x onerror="alert(1)">')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
   })
 
-  it('shows an error when the guide is not found', async () => {
-    stubFetch({ error: 'hittades inte' }, 404)
+  it('still shows the guide when the CMS has no text for it', async () => {
+    stubFetch({ data: { guide: { ...guide, body: [] } } })
     await renderView()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('404')
+    await screen.findByRole('heading', { level: 1, name: 'Kebnekaise' })
+    expect(screen.getByText('Guidens text är inte tillgänglig just nu.')).toBeInTheDocument()
   })
 
-  it('shows the notices for this guide from GraphQL', async () => {
-    const json = (body: unknown) =>
-      new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
-    // Typed like fetch so the test can read the request body; only the URL decides the answer.
-    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>((url) =>
-      Promise.resolve(
-        url.endsWith('/graphql')
-          ? json({
-              data: {
-                guide: {
-                  notices: [
-                    {
-                      id: 'n1',
-                      title: 'Leden är avstängd',
-                      level: 'warning',
-                      status: 'published',
-                      guideSlug: 'kebnekaise',
-                      body: [
-                        {
-                          runs: [
-                            {
-                              text: 'Bron vid Singi är trasig.',
-                              bold: false,
-                              italic: false,
-                              href: null,
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
-                },
-              },
-            })
-          : json(guide),
-      ),
-    )
-    vi.stubGlobal('fetch', fetchMock)
+  it('shows the notices for this guide', async () => {
+    stubFetch({
+      data: {
+        guide: {
+          ...guide,
+          notices: [
+            {
+              id: 'n1',
+              title: 'Leden är avstängd',
+              level: 'warning',
+              status: 'published',
+              guideSlug: 'kebnekaise',
+              body: [{ runs: [run('Bron vid Singi är trasig.')] }],
+            },
+          ],
+        },
+      },
+    })
     await renderView()
 
     expect(await screen.findByRole('heading', { name: 'Leden är avstängd' })).toBeInTheDocument()
     expect(screen.getByText('Bron vid Singi är trasig.')).toBeInTheDocument()
-    const graphqlCall = fetchMock.mock.calls.find(([url]) => url.endsWith('/graphql'))
-    expect(JSON.parse(String(graphqlCall?.[1]?.body)).variables).toEqual({
-      slug: 'kebnekaise',
-    })
+  })
+
+  it('says so when the guide does not exist', async () => {
+    stubFetch({ data: { guide: null } })
+    await renderView('/guider/finns-inte')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Guiden hittades inte.')
   })
 
   it('shows an error when the network is down', async () => {

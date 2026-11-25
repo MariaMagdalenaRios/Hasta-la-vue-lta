@@ -1,6 +1,6 @@
 // Generated GraphQL documents and mappings for the Vue views.
 
-import type { Guide } from '@utpost/shared'
+import type { GuideSummary } from '../lib/guides'
 import type { TourListItem } from '../lib/tours'
 import { graphql } from './gql'
 import type { GuidesQuery, ToursQuery } from './gql/graphql'
@@ -14,7 +14,7 @@ export const GUIDES_QUERY = graphql(/* GraphQL */ `
       region
       difficulty
       lengthKm
-      bodyHtml
+      excerpt
       heroImage
       published
       updatedAt
@@ -39,14 +39,14 @@ export const TOURS_QUERY = graphql(/* GraphQL */ `
   }
 `)
 
-export const toGuide = (guide: GuidesQuery['guides'][number]): Guide => ({
+export const toGuide = (guide: GuidesQuery['guides'][number]): GuideSummary => ({
   id: Number(guide.id),
   slug: guide.slug,
   title: guide.title,
   region: guide.region,
   difficulty: guide.difficulty,
   length_km: guide.lengthKm,
-  body_html: guide.bodyHtml,
+  excerpt: guide.excerpt,
   hero_image: guide.heroImage,
   published: guide.published,
   author_id: null,

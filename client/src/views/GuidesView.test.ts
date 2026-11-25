@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/vue'
 import userEvent from '@testing-library/user-event'
-import type { Guide } from '@utpost/shared'
+import type { GuideSummary } from '../../lib/guides'
 import GuidesView from './GuidesView.vue'
 import { silenceConsole, stubFetch, stubFetchNetworkError, stubFetchPending } from '../test/fetch'
 import { createUrqlPlugins } from '../test/urql'
 
-const makeGuide = (overrides: Partial<Guide> = {}): Guide => ({
+const makeGuide = (overrides: Partial<GuideSummary> = {}): GuideSummary => ({
   id: 1,
   slug: 'kebnekaise',
   title: 'Kebnekaise',
   region: 'Lappland',
   difficulty: 'medel',
   length_km: 12,
-  body_html: '<p>Sveriges tak</p>',
+  excerpt: 'Sveriges tak',
   hero_image: null,
   published: true,
   author_id: 1,
@@ -41,7 +41,7 @@ const guides = [
   }),
 ]
 
-const stubGuides = (items: Guide[]) =>
+const stubGuides = (items: GuideSummary[]) =>
   stubFetch({
     data: {
       guides: items.map((guide) => ({
@@ -51,7 +51,7 @@ const stubGuides = (items: Guide[]) =>
         region: guide.region,
         difficulty: guide.difficulty,
         lengthKm: guide.length_km,
-        bodyHtml: guide.body_html,
+        excerpt: guide.excerpt,
         heroImage: guide.hero_image,
         published: guide.published,
         updatedAt: guide.updated_at,

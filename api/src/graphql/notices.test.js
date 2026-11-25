@@ -10,6 +10,7 @@ vi.hoisted(() => {
 vi.mock('../cms/contentful.js', () => ({
   publishedNotices: vi.fn(),
   previewNotices: vi.fn(),
+  guideBySlug: vi.fn(async () => null),
   cmsConfigured: () => false,
   clearCmsCache: () => {},
 }));

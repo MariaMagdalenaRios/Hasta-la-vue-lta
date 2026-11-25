@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import type { Guide, TourDetail, TourLog, TourWithRelations } from '@utpost/shared'
+import type { GuideSummary } from '../../lib/guides'
 
 export const guideFixture = (overrides: Partial<Guide> = {}): Guide => ({
   id: 1,
@@ -9,6 +10,21 @@ export const guideFixture = (overrides: Partial<Guide> = {}): Guide => ({
   difficulty: 'medel',
   length_km: 12,
   body_html: '<p>Short description</p>',
+  hero_image: null,
+  published: true,
+  author_id: null,
+  updated_at: '2026-09-01T08:00:00.000Z',
+  ...overrides,
+})
+
+export const guideSummaryFixture = (overrides: Partial<GuideSummary> = {}): GuideSummary => ({
+  id: 1,
+  slug: 'kebnekaise',
+  title: 'Kebnekaise',
+  region: 'Lappland',
+  difficulty: 'medel',
+  length_km: 12,
+  excerpt: 'Short description',
   hero_image: null,
   published: true,
   author_id: null,
