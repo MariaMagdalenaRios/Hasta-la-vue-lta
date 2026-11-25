@@ -303,6 +303,25 @@ describe('en guide hämtad med slug', () => {
     config.cmsCacheSeconds = 60;
   });
 
+  it('är CMS:et nere försöker vi inte igen på varje förfrågan, utan först efter en stund', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      const nere = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+      vi.stubGlobal('fetch', nere);
+
+      expect(await guideBySlug('stora-hallstigen-1')).toBeNull();
+      expect(await guideBySlug('stora-hallstigen-1')).toBeNull();
+      expect(nere).toHaveBeenCalledTimes(1); // andra frågan väntar inte in Contentful igen
+
+      vi.advanceTimersByTime(30_000);
+      vi.stubGlobal('fetch', fakeGuide([hallstigen], [bild]));
+      expect((await guideBySlug('stora-hallstigen-1')).title).toBe('Stora Hällstigen 1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('utan space och nyckel är CMS:et avstängt: null, inget anrop', async () => {
     Object.assign(config, { cmsSpaceId: '', cmsDeliveryToken: '' });
     const fetch = fakeGuide([hallstigen]);
