@@ -56,12 +56,35 @@ export const resolvers = {
     },
   },
 
-  Guide: {
-    lengthKm: (guide) => Number(guide.length_km),
-    bodyHtml: (guide) => guide.body_html,
-    heroImage: (guide) => guide.hero_image,
-    updatedAt: (guide) => guide.updated_at,
-    // The guide lives in Postgres, the notice in the CMS. They meet here via the slug.
+    Guide: {
+    title: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.title ?? guide.title,
+
+    region: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.region ?? guide.region,
+
+    difficulty: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.difficulty ?? guide.difficulty,
+
+    lengthKm: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.lengthKm ?? Number(guide.length_km),
+
+
+    body: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.body ?? [],
+
+    excerpt: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.excerpt ?? '',
+
+    heroImage: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.heroImage ?? guide.hero_image,
+
+    published: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug)) ? true : Boolean(guide.published),
+
+    updatedAt: async (guide, _args, { cms }) =>
+      (await cms.guideBySlug(guide.slug))?.updatedAt ?? guide.updated_at,
+
     notices: async (guide, _args, { cms }) =>
       (await cms.notices()).filter((notice) => notice.guideSlug === guide.slug),
   },

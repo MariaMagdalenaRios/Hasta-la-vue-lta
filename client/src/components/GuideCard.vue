@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import type { Guide } from '@utpost/shared'
-import { excerpt } from '../../lib/guides'
+import type { GuideSummary } from '../../lib/guides'
 
 const { guide } = defineProps<{
-  guide: Guide
+  guide: GuideSummary
 }>()
 </script>
 
@@ -11,7 +10,7 @@ const { guide } = defineProps<{
   <div class="card">
     <RouterLink :to="'/guider/' + guide.slug">{{ guide.title }}</RouterLink>
     <p class="muted">{{ guide.region }} · {{ guide.difficulty }} · {{ guide.length_km }} km</p>
-    <div class="excerpt" v-html="excerpt(guide.body_html)" />
+    <p class="excerpt">{{ guide.excerpt }}</p>
   </div>
 </template>
 

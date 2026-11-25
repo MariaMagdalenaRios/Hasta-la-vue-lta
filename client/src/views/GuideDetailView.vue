@@ -1,17 +1,39 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import DOMPurify from 'dompurify'
-import type { Guide } from '@utpost/shared'
 import { useQuery } from '@urql/vue'
-import { get } from '../api'
 import { graphql } from '../gql'
 import NoticeList from '../components/NoticeList.vue'
+import RichText from '../components/RichText.vue'
 
-// Notices live in the CMS and only reach the client through /graphql (Guide.notices).
-const GuideNoticesDocument = graphql(/* GraphQL */ `
-  query GuideNotices($slug: String!) {
+// The guide and its notices in one request. The text comes from Contentful through our GraphQL
+// API (Guide.body); the API falls back to Postgres for the facts when the CMS has no entry.
+const GuideDetailDocument = graphql(/* GraphQL */ `
+  query GuideDetail($slug: String!) {
     guide(slug: $slug) {
+      id
+      slug
+      title
+      region
+      difficulty
+      lengthKm
+      body {
+        type
+        runs {
+          text
+          bold
+          italic
+          href
+        }
+        items {
+          runs {
+            text
+            bold
+            italic
+            href
+          }
+        }
+      }
       notices {
         id
         title
@@ -33,35 +55,25 @@ const GuideNoticesDocument = graphql(/* GraphQL */ `
 
 const route = useRoute()
 
-// A failed notices query must not hide the guide, so errors here just mean no notices.
-const { data: noticeData } = useQuery({
-  query: GuideNoticesDocument,
+const { data, fetching, error } = useQuery({
+  query: GuideDetailDocument,
   variables: computed(() => ({ slug: String(route.params.slug) })),
 })
-const notices = computed(() => noticeData.value?.guide?.notices ?? [])
-const guide = ref<Guide | null>(null)
-const error = ref<string | null>(null)
 
-onMounted(async () => {
-  try {
-    guide.value = await get<Guide>(`/guides/${route.params.slug}`)
-  } catch (err) {
-    error.value = (err as Error).message
-  }
-})
-
-// The guide body is HTML from the database (debt item 3), so it is sanitized before v-html.
-const bodyHtml = computed(() => DOMPurify.sanitize(guide.value?.body_html ?? ''))
+const guide = computed(() => data.value?.guide ?? null)
+const notices = computed(() => guide.value?.notices ?? [])
 </script>
 
 <template>
-  <p v-if="error" role="alert">{{ error }}</p>
-  <p v-else-if="!guide">Laddar…</p>
+  <p v-if="error" role="alert">{{ error.message }}</p>
+  <p v-else-if="fetching">Laddar…</p>
+  <p v-else-if="!guide" role="alert">Guiden hittades inte.</p>
   <article v-else class="guide">
     <h1>{{ guide.title }}</h1>
-    <p class="muted">{{ guide.region }} · {{ guide.difficulty }} · {{ guide.length_km }} km</p>
+    <p class="muted">{{ guide.region }} · {{ guide.difficulty }} · {{ guide.lengthKm }} km</p>
     <NoticeList :notices="notices" />
-    <div v-html="bodyHtml" />
+    <RichText v-if="guide.body.length" :blocks="guide.body" />
+    <p v-else class="muted">Guidens text är inte tillgänglig just nu.</p>
   </article>
 </template>
 
