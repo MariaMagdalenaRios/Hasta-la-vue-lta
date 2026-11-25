@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { config } from '../config.js';
-import { toParagraphs, publishedNotices, previewNotices, clearCmsCache } from './contentful.js';
+import { toParagraphs, publishedNotices, previewNotices, guideBySlug, clearCmsCache } from './contentful.js';
 
 // Enhetstester för CMS-lagret (M9). Contentful anropas aldrig: fetch byts mot en funktion som
 // svarar med det Contentful skulle ha svarat. Så går testerna i pipelinen utan nycklar och
@@ -154,5 +154,133 @@ describe('förhandsgranskningen', () => {
     expect(notices[2].body).toEqual([]);
     const preview = fetch.mock.calls.find(([url]) => url.startsWith('https://preview.contentful.com'));
     expect(preview[1].headers.Authorization).toBe('Bearer preview-nyckel');
+  });
+});
+
+describe('en guide hämtad med slug', () => {
+  const heading = (nodeType, value) => ({ nodeType, data: {}, content: [text(value)] });
+  const listItem = (...content) => ({ nodeType: 'list-item', data: {}, content: [paragraph(...content)] });
+  const list = (...items) => ({ nodeType: 'unordered-list', data: {}, content: items });
+  const link = (uri, value) => ({ nodeType: 'hyperlink', data: { uri }, content: [text(value)] });
+
+  const hallstigen = {
+    sys: { id: 'guide-stora-hallstigen-1', updatedAt: '2026-11-24T20:45:00Z' },
+    fields: {
+      title: 'Stora Hällstigen 1',
+      slug: 'stora-hallstigen-1',
+      region: 'Jämtland',
+      difficulty: 'medel',
+      lengthKm: 12.5,
+      heroImage: { sys: { type: 'Link', linkType: 'Asset', id: 'bild1' } },
+      body: document(
+        heading('heading-2', 'Om leden'),
+        paragraph(text('En '), text('lugn', ['italic']), text(' led med '), text('fin', ['bold']), text(' utsikt.')),
+        heading('heading-3', 'Hitta hit'),
+        list(listItem(text('Buss 120')), listItem(link('https://utpost.se/buss', 'tidtabell')), listItem(link('javascript:alert(1)', 'klicka'))),
+      ),
+    },
+  };
+  const bild = { sys: { id: 'bild1' }, fields: { file: { url: '//images.ctfassets.net/space1/bild1/hall.jpg' } } };
+
+  // Svarar som Contentful med include: { items, includes: { Asset } }.
+  const fakeGuide = (items, assets = []) =>
+    vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ items, includes: { Asset: assets } }) }));
+
+  it('frågar delivery-API:et efter en guide med just den sluggen, med bilden inkluderad', async () => {
+    const fetch = fakeGuide([hallstigen], [bild]);
+    vi.stubGlobal('fetch', fetch);
+
+    await guideBySlug('stora-hallstigen-1');
+
+    const [url, options] = fetch.mock.calls[0];
+    const params = new URL(url).searchParams;
+    expect(url).toContain('https://cdn.contentful.com/spaces/space1/environments/master/entries');
+    expect(params.get('content_type')).toBe('guide');
+    expect(params.get('fields.slug')).toBe('stora-hallstigen-1');
+    expect(params.get('limit')).toBe('1');
+    expect(params.get('include')).toBe('1');
+    expect(url).not.toContain('delivery-nyckel');
+    expect(options.headers.Authorization).toBe('Bearer delivery-nyckel');
+  });
+
+  it('formas om till schemat: fälten, bildens https-adress och ett utdrag', async () => {
+    vi.stubGlobal('fetch', fakeGuide([hallstigen], [bild]));
+
+    const guide = await guideBySlug('stora-hallstigen-1');
+
+    expect(guide).toMatchObject({
+      id: 'guide-stora-hallstigen-1',
+      slug: 'stora-hallstigen-1',
+      title: 'Stora Hällstigen 1',
+      region: 'Jämtland',
+      difficulty: 'medel',
+      lengthKm: 12.5,
+      heroImage: 'https://images.ctfassets.net/space1/bild1/hall.jpg',
+      updatedAt: '2026-11-24T20:45:00Z',
+    });
+    expect(guide.excerpt).toBe('Om leden En lugn led med fin utsikt. Hitta hit Buss 120 tidtabell klicka');
+  });
+
+  it('brödtexten blir block: rubriker, stycken med fet och kursiv text, och listor med säkra länkar', async () => {
+    vi.stubGlobal('fetch', fakeGuide([hallstigen], [bild]));
+
+    const { body } = await guideBySlug('stora-hallstigen-1');
+
+    expect(body.map((block) => block.type)).toEqual(['heading-2', 'paragraph', 'heading-3', 'unordered-list']);
+    expect(body[0].runs).toEqual([{ text: 'Om leden', bold: false, italic: false, href: null }]);
+    expect(body[1].runs.map((run) => [run.text, run.bold, run.italic])).toEqual([
+      ['En ', false, false],
+      ['lugn', false, true],
+      [' led med ', false, false],
+      ['fin', true, false],
+      [' utsikt.', false, false],
+    ]);
+    expect(body[3].items.map((item) => item.runs[0].href)).toEqual([null, 'https://utpost.se/buss', null]);
+  });
+
+  it('en slug som inte finns ger null', async () => {
+    vi.stubGlobal('fetch', fakeGuide([]));
+    expect(await guideBySlug('finns-inte')).toBeNull();
+  });
+
+  it('en post utan fält (ett tomt utkast) kraschar inte', async () => {
+    vi.stubGlobal('fetch', fakeGuide([{ sys: { id: 'tom' } }]));
+
+    const guide = await guideBySlug('tom');
+
+    expect(guide).toMatchObject({ id: 'tom', title: '', slug: '', lengthKm: 0, body: [], excerpt: '', heroImage: null });
+  });
+
+  it('cachas: två frågor i rad, eller samtidigt, kostar ett anrop till Contentful', async () => {
+    const fetch = fakeGuide([hallstigen], [bild]);
+    vi.stubGlobal('fetch', fetch);
+
+    await Promise.all([guideBySlug('stora-hallstigen-1'), guideBySlug('stora-hallstigen-1')]);
+    await guideBySlug('stora-hallstigen-1');
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('är CMS:et nere svarar vi med den senast hämtade guiden, eller null – aldrig ett fel', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const nere = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+    vi.stubGlobal('fetch', nere);
+    expect(await guideBySlug('stora-hallstigen-1')).toBeNull();
+
+    clearCmsCache();
+    vi.stubGlobal('fetch', fakeGuide([hallstigen], [bild]));
+    expect((await guideBySlug('stora-hallstigen-1')).title).toBe('Stora Hällstigen 1');
+    config.cmsCacheSeconds = 0; // cachen har gått ut …
+    vi.stubGlobal('fetch', nere);
+    expect((await guideBySlug('stora-hallstigen-1')).title).toBe('Stora Hällstigen 1'); // … men det gamla svaret gäller
+    config.cmsCacheSeconds = 60;
+  });
+
+  it('utan space och nyckel är CMS:et avstängt: null, inget anrop', async () => {
+    Object.assign(config, { cmsSpaceId: '', cmsDeliveryToken: '' });
+    const fetch = fakeGuide([hallstigen]);
+    vi.stubGlobal('fetch', fetch);
+    expect(await guideBySlug('stora-hallstigen-1')).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

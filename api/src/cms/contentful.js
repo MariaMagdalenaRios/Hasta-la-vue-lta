@@ -14,10 +14,6 @@ const HOSTS = { published: 'https://cdn.contentful.com', preview: 'https://previ
 // Så kör pipelinen (inga CMS-hemligheter i testerna) och den som inte har satt upp ett space än.
 export const cmsConfigured = () => Boolean(config.cmsSpaceId && config.cmsDeliveryToken);
 
-
-
-
-
 const entries = async (contentType, { preview = false, params = {}, includeAssets = false } = {}) => {
   const host = preview ? HOSTS.preview : HOSTS.published;
   const token = preview ? config.cmsPreviewToken : config.cmsDeliveryToken;
@@ -33,6 +29,8 @@ const entries = async (contentType, { preview = false, params = {}, includeAsset
     url.searchParams.set(key, value);
   }
 
+  // Nyckeln går i en header, inte i adressen – adresser hamnar i loggar.
+  // Fem sekunder räcker: hellre en startsida utan notiser än en startsida som hänger.
   const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(5000),
@@ -41,7 +39,6 @@ const entries = async (contentType, { preview = false, params = {}, includeAsset
   const data = await res.json();
   return includeAssets ? data : data.items ?? [];
 };
-
 
 // En länk som redaktören skrivit in ska gå till en webbadress eller en sida hos oss. Allt annat
 // (javascript:, data:) blir ingen länk alls – href är också ett ställe där skript kan smita in (M8, A05).
@@ -66,7 +63,6 @@ export const toParagraphs = (document) => {
     .map((node) => ({ runs: runs(node.content) }))
     .filter((paragraph) => paragraph.runs.length > 0);
 };
-
 
 const toRichTextBlocks = (document) => {
   const has = (node, mark) => (node.marks ?? []).some((m) => m.type === mark);
@@ -117,7 +113,6 @@ const richTextExcerpt = (blocks, maxLength = 180) =>
     .trim()
     .slice(0, maxLength);
 
-
 // Contentfuls post → schemats Notice. Fälten heter som redaktionen kallar dem (rubrik, niva);
 // schemat håller sig till engelska som resten av API:et. Ett utkast kan sakna fält – därav ??.
 const toNotice = (entry, status = 'published') => ({
@@ -128,7 +123,6 @@ const toNotice = (entry, status = 'published') => ({
   guideSlug: entry.fields?.guideSlug ?? null,
   status,
 });
-
 
 const toGuide = (entry, assets = []) => {
   const fields = entry.fields ?? {};
