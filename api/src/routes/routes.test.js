@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { vi } from 'vitest';
+import { config } from '../config.js';
+import { publishedNotices, clearCmsCache } from '../cms/contentful.js';
 import { app } from '../app.js';
 import { pool } from '../db/client.js';
 import { mongo } from '../db/mongo.js';
@@ -331,5 +334,50 @@ describe('Validering av indata – A10 Mishandling of Exceptional Conditions', (
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'ogiltig JSON' });
+  });
+});
+
+// Fredagens labb (M9): webhooken från CMS:et. Adressen är publik, så testerna gäller två saker:
+// att ingen kommer in utan hemligheten, och att rätt anrop faktiskt tömmer cachen.
+describe('M9 – webhooken från CMS:et', () => {
+  const HEMLIGHET = 'en-lang-webhook-hemlighet-for-testerna';
+  const webhook = (headers = {}) => fetch(`${base}/api/cms/webhook`, { method: 'POST', headers });
+
+  it('utan hemlighet, med fel hemlighet eller när ingen är satt på servern: 401', async () => {
+    config.cmsWebhookSecret = HEMLIGHET;
+    expect((await webhook()).status).toBe(401);
+    expect((await webhook({ 'X-Utpost-Webhook-Secret': 'fel' })).status).toBe(401);
+    config.cmsWebhookSecret = '';
+    expect((await webhook({ 'X-Utpost-Webhook-Secret': '' })).status).toBe(401);
+  });
+
+  it('med rätt hemlighet töms cachen: nästa fråga hämtar från CMS:et igen', async () => {
+    Object.assign(config, { cmsWebhookSecret: HEMLIGHET, cmsSpaceId: 'space1', cmsDeliveryToken: 'nyckel' });
+    clearCmsCache();
+    const riktigFetch = globalThis.fetch;
+    // Bara anropen till Contentful byts ut – testets egna anrop till API:et går som vanligt.
+    const contentful = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ items: [] }) }));
+    vi.stubGlobal('fetch', (url, options) =>
+      String(url).includes('contentful.com') ? contentful(url, options) : riktigFetch(url, options),
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await publishedNotices();
+    await publishedNotices();
+    expect(contentful).toHaveBeenCalledTimes(1); // andra frågan svarades ur cachen
+
+    const res = await webhook({
+      'X-Utpost-Webhook-Secret': HEMLIGHET,
+      'X-Contentful-Topic': 'ContentManagement.Entry.publish',
+    });
+    expect(res.status).toBe(204);
+
+    await publishedNotices();
+    expect(contentful).toHaveBeenCalledTimes(2); // cachen var tömd
+
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    Object.assign(config, { cmsWebhookSecret: '', cmsSpaceId: '', cmsDeliveryToken: '' });
+    clearCmsCache();
   });
 });
