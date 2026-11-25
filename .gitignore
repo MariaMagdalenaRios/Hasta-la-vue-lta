@@ -4,3 +4,6 @@ dist
 uploads
 
 .nvmrc
+
+# Local Claude Code worktrees
+.claude/worktrees/
