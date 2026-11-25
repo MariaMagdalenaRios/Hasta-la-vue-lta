@@ -28,7 +28,7 @@ The request cap or user limit is hit even with the cache; content must be stored
 
 **Postgres vs Contentful.** Contentful holds what editors write. Postgres keeps `id` (tours point to it), `author_id` and `slug`. The other guide columns are only a fallback now and can be dropped once staging serves guides from Contentful (#165). That step has no ticket yet.
 
-**How the API finds a guide.** By `slug`: the Postgres row from the URL, then the same slug in Contentful (`guideBySlug`, PR #176, open). `Guide.notices` matches `notice.guideSlug === guide.slug`. Weak spot: `guideSlug` is plain text, so renaming a slug silently unlinks its notices. The fix is a `guide` reference on `notis`. Not built, no ticket.
+**How the API finds a guide.** By `slug`: the Postgres row from the URL, then the same slug in Contentful (`guideBySlug`). `Guide.notices` matches `notice.guideSlug === guide.slug`. Weak spot: `guideSlug` is plain text, so renaming a slug silently unlinks its notices. The fix is a `guide` reference on `notis`. Not built, no ticket.
 
 ## Migration
 
@@ -37,5 +37,5 @@ The request cap or user limit is hit even with the cache; content must be stored
 ## Caching, webhook and outages
 
 - **Cache.** Notices and guides are kept in memory for `CMS_CACHE_SECONDS` (60). All guides come in one request, so 40 guides cost one call, not 40. Preview is never cached.
-- **Webhook.** `POST /api/cms/webhook` (secret in `X-Utpost-Webhook-Secret`) should clear the cache on publish (#159). It is **not on `main` yet**, so changes show after up to 60 seconds.
-- **Contentful down.** Requests time out after 5 seconds and the API serves what it last fetched. With nothing fetched, notices are empty and guides use Postgres values, but the **body is empty** because `bodyHtml` is gone: a guide page shows no text until Contentful answers.
+- **Webhook.** Contentful calls `POST /api/cms/webhook` on publish and unpublish with the secret in `X-Utpost-Webhook-Secret`. The API empties the cache, so a change shows within seconds. A missing or wrong secret gets 401. If the webhook fails, changes still show within 60 seconds.
+- **Contentful down.** Requests time out after 5 seconds and the API serves what it last fetched. After a failed guide fetch it waits 30 seconds before asking Contentful again, so an outage does not slow every request. With nothing fetched, notices are empty and guides use Postgres values, but the **body is empty** because `bodyHtml` is gone: the guide page shows its facts and "Guidens text är inte tillgänglig just nu." until Contentful answers.
