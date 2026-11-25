@@ -146,47 +146,51 @@ const toGuide = (entry, assets = []) => {
   };
 };
 
-const guideCache = new Map();
-const pendingGuides = new Map();
+// Alla guider hämtas i ETT anrop och sparas som en karta slug → guide. En lista med 40 guider ger
+// annars 40 anrop med kall cache (ett per slug), och gratisnivån har ett tak per månad. Samma
+// cache och samma regler som notiserna: högst en hämtning per cachefönster, alla som frågar medan
+// den pågår väntar på samma svar, och är Contentful nere svarar vi med det senast hämtade.
+const GUIDE_PAGE_SIZE = 100;
+let guideCache = { at: 0, bySlug: null };
+let pendingGuides = null;
 
-export const guideBySlug = async (slug) => {
-  if (!cmsConfigured() || !slug) return null;
-
-  const cached = guideCache.get(slug);
-  if (cached && Date.now() - cached.at < config.cmsCacheSeconds * 1000) {
-    return cached.guide;
-  }
-
-  if (pendingGuides.has(slug)) return pendingGuides.get(slug);
-
-  const pending = (async () => {
-    try {
-      const result = await entries('guide', {
-        params: {
-          'fields.slug': slug,
-          limit: '1',
-          include: '1',
-        },
+const fetchGuides = async () => {
+  try {
+    const bySlug = new Map();
+    // Fler än 100 guider ryms inte i en sida: då hämtas nästa sida med skip, ett anrop per 100.
+    for (let skip = 0; ; skip += GUIDE_PAGE_SIZE) {
+      const page = await entries('guide', {
+        params: { limit: String(GUIDE_PAGE_SIZE), skip: String(skip), include: '1' },
         includeAssets: true,
       });
-
-      const entry = result.items?.[0];
-      if (!entry) {
-        guideCache.set(slug, { at: Date.now(), guide: null });
-        return null;
+      const assets = page.includes?.Asset ?? [];
+      for (const entry of page.items ?? []) {
+        const guide = toGuide(entry, assets);
+        if (guide.slug) bySlug.set(guide.slug, guide);
       }
-
-      const guide = toGuide(entry, result.includes?.Asset ?? []);
-      guideCache.set(slug, { at: Date.now(), guide });
-      return guide;
-    } catch (err) {
-      console.error(`cms: kunde inte hämta guide "${slug}" (${err.message})`);
-      return cached?.guide ?? null;
+      if (skip + GUIDE_PAGE_SIZE >= (page.total ?? 0)) break;
     }
-  })().finally(() => pendingGuides.delete(slug));
+    console.log(`cms: hämtade ${bySlug.size} publicerade guider från Contentful`);
+    guideCache = { at: Date.now(), bySlug };
+    return bySlug;
+  } catch (err) {
+    console.error(`cms: kunde inte hämta guider (${err.message}) – svarar med ${guideCache.bySlug ? 'det senast hämtade' : 'Postgres-värdena'}`);
+    return guideCache.bySlug ?? new Map();
+  }
+};
 
-  pendingGuides.set(slug, pending);
-  return pending;
+const publishedGuides = async () => {
+  if (guideCache.bySlug && Date.now() - guideCache.at < config.cmsCacheSeconds * 1000) return guideCache.bySlug;
+  pendingGuides ??= fetchGuides().finally(() => {
+    pendingGuides = null;
+  });
+  return pendingGuides;
+};
+
+// En publicerad guide från Contentful, eller null om CMS:et saknar den (då gäller Postgres).
+export const guideBySlug = async (slug) => {
+  if (!cmsConfigured() || !slug) return null;
+  return (await publishedGuides()).get(slug) ?? null;
 };
 
 // Cachen: Contentful räknar varje anrop (gratisnivån har ett tak per månad), och en notis ändras
@@ -196,8 +200,8 @@ let cache = { at: 0, notices: null };
 let pending = null; // anropet till Contentful som pågår just nu, om något gör det
 export const clearCmsCache = () => {
   cache = { at: 0, notices: null };
-  guideCache.clear();
-  pendingGuides.clear();
+  guideCache = { at: 0, bySlug: null };
+  pendingGuides = null;
 };
 
 const fetchNotices = async () => {

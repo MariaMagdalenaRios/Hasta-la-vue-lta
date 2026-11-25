@@ -182,11 +182,16 @@ describe('en guide hämtad med slug', () => {
   };
   const bild = { sys: { id: 'bild1' }, fields: { file: { url: '//images.ctfassets.net/space1/bild1/hall.jpg' } } };
 
-  // Svarar som Contentful med include: { items, includes: { Asset } }.
+  // Svarar som Contentful med include: { items, total, includes: { Asset } }.
   const fakeGuide = (items, assets = []) =>
-    vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ items, includes: { Asset: assets } }) }));
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ items, total: items.length, includes: { Asset: assets } }),
+    }));
+  const guideNr = (n) => ({ sys: { id: `guide-${n}` }, fields: { title: `Guide ${n}`, slug: `guide-${n}` } });
 
-  it('frågar delivery-API:et efter en guide med just den sluggen, med bilden inkluderad', async () => {
+  it('frågar delivery-API:et efter alla guider i ett anrop, med bilderna inkluderade', async () => {
     const fetch = fakeGuide([hallstigen], [bild]);
     vi.stubGlobal('fetch', fetch);
 
@@ -196,8 +201,9 @@ describe('en guide hämtad med slug', () => {
     const params = new URL(url).searchParams;
     expect(url).toContain('https://cdn.contentful.com/spaces/space1/environments/master/entries');
     expect(params.get('content_type')).toBe('guide');
-    expect(params.get('fields.slug')).toBe('stora-hallstigen-1');
-    expect(params.get('limit')).toBe('1');
+    expect(params.get('fields.slug')).toBeNull();
+    expect(params.get('limit')).toBe('100');
+    expect(params.get('skip')).toBe('0');
     expect(params.get('include')).toBe('1');
     expect(url).not.toContain('delivery-nyckel');
     expect(options.headers.Authorization).toBe('Bearer delivery-nyckel');
@@ -243,12 +249,33 @@ describe('en guide hämtad med slug', () => {
     expect(await guideBySlug('finns-inte')).toBeNull();
   });
 
-  it('en post utan fält (ett tomt utkast) kraschar inte', async () => {
-    vi.stubGlobal('fetch', fakeGuide([{ sys: { id: 'tom' } }]));
+  it('en post utan fält (ett tomt utkast) hoppas över och stör inte de andra guiderna', async () => {
+    vi.stubGlobal('fetch', fakeGuide([{ sys: { id: 'tom' } }, hallstigen], [bild]));
 
-    const guide = await guideBySlug('tom');
+    expect(await guideBySlug('')).toBeNull();
+    expect((await guideBySlug('stora-hallstigen-1')).title).toBe('Stora Hällstigen 1');
+  });
 
-    expect(guide).toMatchObject({ id: 'tom', title: '', slug: '', lengthKm: 0, body: [], excerpt: '', heroImage: null });
+  it('en lista med 40 guider och kall cache kostar ETT anrop till Contentful, inte 40', async () => {
+    const fetch = fakeGuide(Array.from({ length: 40 }, (_, i) => guideNr(i + 1)));
+    vi.stubGlobal('fetch', fetch);
+
+    const guides = await Promise.all(Array.from({ length: 40 }, (_, i) => guideBySlug(`guide-${i + 1}`)));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(guides.map((guide) => guide.title)).toEqual(Array.from({ length: 40 }, (_, i) => `Guide ${i + 1}`));
+  });
+
+  it('fler än 100 guider hämtas sida för sida med skip', async () => {
+    const all = Array.from({ length: 150 }, (_, i) => guideNr(i + 1));
+    const fetch = vi.fn(async (url) => {
+      const skip = Number(new URL(url).searchParams.get('skip'));
+      return { ok: true, status: 200, json: async () => ({ items: all.slice(skip, skip + 100), total: all.length }) };
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    expect((await guideBySlug('guide-150')).title).toBe('Guide 150');
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('skip'))).toEqual(['0', '100']);
   });
 
   it('cachas: två frågor i rad, eller samtidigt, kostar ett anrop till Contentful', async () => {
