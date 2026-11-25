@@ -151,8 +151,12 @@ const toGuide = (entry, assets = []) => {
 // cache och samma regler som notiserna: högst en hämtning per cachefönster, alla som frågar medan
 // den pågår väntar på samma svar, och är Contentful nere svarar vi med det senast hämtade.
 const GUIDE_PAGE_SIZE = 100;
+// Är Contentful nere väntar vi så här länge innan nästa försök. Annars väntar varje förfrågan in
+// timeouten på fem sekunder igen, så länge CMS:et är nere.
+const GUIDE_RETRY_MS = 30_000;
 let guideCache = { at: 0, bySlug: null };
 let pendingGuides = null;
+let guidesFailedAt = 0;
 
 const fetchGuides = async () => {
   try {
@@ -172,8 +176,10 @@ const fetchGuides = async () => {
     }
     console.log(`cms: hämtade ${bySlug.size} publicerade guider från Contentful`);
     guideCache = { at: Date.now(), bySlug };
+    guidesFailedAt = 0;
     return bySlug;
   } catch (err) {
+    guidesFailedAt = Date.now();
     console.error(`cms: kunde inte hämta guider (${err.message}) – svarar med ${guideCache.bySlug ? 'det senast hämtade' : 'Postgres-värdena'}`);
     return guideCache.bySlug ?? new Map();
   }
@@ -181,6 +187,7 @@ const fetchGuides = async () => {
 
 const publishedGuides = async () => {
   if (guideCache.bySlug && Date.now() - guideCache.at < config.cmsCacheSeconds * 1000) return guideCache.bySlug;
+  if (Date.now() - guidesFailedAt < GUIDE_RETRY_MS) return guideCache.bySlug ?? new Map();
   pendingGuides ??= fetchGuides().finally(() => {
     pendingGuides = null;
   });
@@ -202,6 +209,7 @@ export const clearCmsCache = () => {
   cache = { at: 0, notices: null };
   guideCache = { at: 0, bySlug: null };
   pendingGuides = null;
+  guidesFailedAt = 0;
 };
 
 const fetchNotices = async () => {
