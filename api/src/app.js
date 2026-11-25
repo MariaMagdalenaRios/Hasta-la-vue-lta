@@ -5,6 +5,7 @@ import { authRouter } from './routes/auth.js';
 import { guidesRouter } from './routes/guides.ts';
 import { toursRouter } from './routes/tours.js';
 import { photosRouter } from './routes/photos.js';
+import { cmsRouter } from './routes/cms.js';
 import { pool } from './db/client.js';
 import { mongo } from './db/mongo.js';
 import { yoga } from './graphql/server.js';
@@ -49,6 +50,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/guides', guidesRouter);
 app.use('/api/tours', toursRouter);
 app.use('/api/photos', photosRouter);
+app.use('/api/cms', cmsRouter); // M9: webhooken från CMS:et
 
 // Felhanterare (fyra argument). validate() i lib/validate.js skickar ZodError hit: 400 med vad
 // som var fel, fält för fält. Alltid JSON, och inga interna fel i svaret.
