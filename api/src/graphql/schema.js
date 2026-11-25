@@ -7,7 +7,10 @@ export const typeDefs = /* GraphQL */ `
     region: String!
     difficulty: String!
     lengthKm: Float!
-    bodyHtml: String!
+    "The old HTML body from Postgres. The guide list still reads it; remove once the client uses body."
+    bodyHtml: String! @deprecated(reason: "Use body (rich text from the CMS).")
+    body: [RichTextBlock!]!
+    excerpt: String!
     heroImage: String
     published: Boolean!
     updatedAt: String!
@@ -28,6 +31,17 @@ export const typeDefs = /* GraphQL */ `
     runs: [TextRun!]!
   }
 
+  "A rich-text block from Contentful: paragraph, heading-2, heading-3 or unordered-list."
+  type RichTextBlock {
+    type: String!
+    runs: [TextRun!]!
+    items: [RichTextListItem!]!
+  }
+
+  type RichTextListItem {
+    runs: [TextRun!]!
+  }
+    
   "An editorial notice. The content lives in the CMS, not in the database."
   type Notice {
     id: ID!
