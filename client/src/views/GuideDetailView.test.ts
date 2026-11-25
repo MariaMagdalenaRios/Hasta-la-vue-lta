@@ -5,7 +5,10 @@ import GuideDetailView from './GuideDetailView.vue'
 import { stubFetch, stubFetchNetworkError } from '../test/fetch'
 import { createUrqlPlugins } from '../test/urql'
 
-const run = (text: string, marks: { bold?: boolean; italic?: boolean; href?: string | null } = {}) => ({
+const run = (
+  text: string,
+  marks: { bold?: boolean; italic?: boolean; href?: string | null } = {},
+) => ({
   text,
   bold: marks.bold ?? false,
   italic: marks.italic ?? false,
@@ -23,11 +26,21 @@ const guide = {
   lengthKm: 12,
   body: [
     block('heading-2', run('Om leden')),
-    block('paragraph', run('Sveriges '), run('högsta', { bold: true }), run(' topp, '), run('ofta', { italic: true }), run(' blåsigt.')),
+    block(
+      'paragraph',
+      run('Sveriges '),
+      run('högsta', { bold: true }),
+      run(' topp, '),
+      run('ofta', { italic: true }),
+      run(' blåsigt.'),
+    ),
     {
       type: 'unordered-list',
       runs: [],
-      items: [{ runs: [run('Buss 120')] }, { runs: [run('tidtabell', { href: 'https://utpost.se/buss' })] }],
+      items: [
+        { runs: [run('Buss 120')] },
+        { runs: [run('tidtabell', { href: 'https://utpost.se/buss' })] },
+      ],
     },
   ],
   notices: [] as unknown[],
@@ -65,11 +78,18 @@ describe('GuideDetailView', () => {
     expect(screen.getByText('högsta').tagName).toBe('STRONG')
     expect(screen.getByText('ofta').tagName).toBe('EM')
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
-    expect(screen.getByRole('link', { name: 'tidtabell' })).toHaveAttribute('href', 'https://utpost.se/buss')
+    expect(screen.getByRole('link', { name: 'tidtabell' })).toHaveAttribute(
+      'href',
+      'https://utpost.se/buss',
+    )
   })
 
   it('shows text that looks like HTML as text, never as markup', async () => {
-    stubFetch({ data: { guide: { ...guide, body: [block('paragraph', run('<img src=x onerror="alert(1)">'))] } } })
+    stubFetch({
+      data: {
+        guide: { ...guide, body: [block('paragraph', run('<img src=x onerror="alert(1)">'))] },
+      },
+    })
     const { container } = await renderView()
 
     expect(await screen.findByText('<img src=x onerror="alert(1)">')).toBeInTheDocument()

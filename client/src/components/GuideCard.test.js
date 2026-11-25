@@ -30,7 +30,9 @@ describe('GuideCard', () => {
   })
 
   it('shows HTML in the excerpt as text, never as markup', () => {
-    const { container } = renderCard(guideSummaryFixture({ excerpt: '<img src=x onerror="alert(1)">' }))
+    const { container } = renderCard(
+      guideSummaryFixture({ excerpt: '<img src=x onerror="alert(1)">' }),
+    )
 
     expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()

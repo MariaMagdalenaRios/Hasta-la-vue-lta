@@ -5,7 +5,7 @@ defineProps<{
   }[]
   blocks?: RichTextBlock[]
 }>()
-    
+
 type TextRun = {
   text: string
   bold: boolean
@@ -38,7 +38,10 @@ function isSafeLink(href?: string | null): boolean {
       <template v-for="(block, index) in blocks" :key="index">
         <h2 v-if="block.type === 'heading-2'">
           <template v-for="(run, i) in block.runs" :key="i">
-            <strong v-if="run.bold"><em v-if="run.italic">{{ run.text }}</em><template v-else>{{ run.text }}</template></strong>
+            <strong v-if="run.bold"
+              ><em v-if="run.italic">{{ run.text }}</em
+              ><template v-else>{{ run.text }}</template></strong
+            >
             <em v-else-if="run.italic">{{ run.text }}</em>
             <template v-else>{{ run.text }}</template>
           </template>
@@ -55,7 +58,13 @@ function isSafeLink(href?: string | null): boolean {
         <ul v-else-if="block.type === 'unordered-list'">
           <li v-for="(item, itemIndex) in block.items" :key="itemIndex">
             <template v-for="(run, i) in item.runs" :key="i">
-              <a v-if="run.href && isSafeLink(run.href)" :href="run.href" target="_blank" rel="noopener noreferrer">{{ run.text }}</a>
+              <a
+                v-if="run.href && isSafeLink(run.href)"
+                :href="run.href"
+                target="_blank"
+                rel="noopener noreferrer"
+                >{{ run.text }}</a
+              >
               <strong v-else-if="run.bold">{{ run.text }}</strong>
               <em v-else-if="run.italic">{{ run.text }}</em>
               <template v-else>{{ run.text }}</template>
@@ -65,7 +74,13 @@ function isSafeLink(href?: string | null): boolean {
 
         <p v-else>
           <template v-for="(run, i) in block.runs" :key="i">
-            <a v-if="run.href && isSafeLink(run.href)" :href="run.href" target="_blank" rel="noopener noreferrer">{{ run.text }}</a>
+            <a
+              v-if="run.href && isSafeLink(run.href)"
+              :href="run.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              >{{ run.text }}</a
+            >
             <strong v-else-if="run.bold">{{ run.text }}</strong>
             <em v-else-if="run.italic">{{ run.text }}</em>
             <template v-else>{{ run.text }}</template>

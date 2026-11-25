@@ -75,7 +75,7 @@ describe('RichText', () => {
     expect(container.querySelector('img')).toBeNull()
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
   })
-    it('renders heading-2 and heading-3 blocks', () => {
+  it('renders heading-2 and heading-3 blocks', () => {
     render(RichText, {
       props: {
         blocks: [
