@@ -69,7 +69,6 @@ export const resolvers = {
     lengthKm: async (guide, _args, { cms }) =>
       (await cms.guideBySlug(guide.slug))?.lengthKm ?? Number(guide.length_km),
 
-    bodyHtml: (guide) => guide.body_html,
 
     body: async (guide, _args, { cms }) =>
       (await cms.guideBySlug(guide.slug))?.body ?? [],

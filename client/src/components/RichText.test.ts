@@ -75,4 +75,57 @@ describe('RichText', () => {
     expect(container.querySelector('img')).toBeNull()
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
   })
+    it('renders heading-2 and heading-3 blocks', () => {
+    render(RichText, {
+      props: {
+        blocks: [
+          { type: 'heading-2', runs: [run('Huvudrubrik')], items: [] },
+          { type: 'heading-3', runs: [run('Underrubrik')], items: [] },
+        ],
+      },
+    })
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Huvudrubrik' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: 'Underrubrik' })).toBeInTheDocument()
+  })
+
+  it('renders unordered lists and their formatting', () => {
+    render(RichText, {
+      props: {
+        blocks: [
+          {
+            type: 'unordered-list',
+            runs: [],
+            items: [
+              { runs: [run('Första punkten')] },
+              { runs: [run('Andra punkten', { bold: true })] },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(screen.getByRole('list')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText('Andra punkten').tagName).toBe('STRONG')
+  })
+
+  it('renders links inside rich-text blocks', () => {
+    render(RichText, {
+      props: {
+        blocks: [
+          {
+            type: 'paragraph',
+            runs: [run('SMHI', { href: 'https://www.smhi.se' })],
+            items: [],
+          },
+        ],
+      },
+    })
+
+    expect(screen.getByRole('link', { name: 'SMHI' })).toHaveAttribute(
+      'href',
+      'https://www.smhi.se',
+    )
+  })
 })

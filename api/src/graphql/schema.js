@@ -7,8 +7,6 @@ export const typeDefs = /* GraphQL */ `
     region: String!
     difficulty: String!
     lengthKm: Float!
-    "The old HTML body from Postgres. The guide list still reads it; remove once the client uses body."
-    bodyHtml: String! @deprecated(reason: "Use body (rich text from the CMS).")
     body: [RichTextBlock!]!
     excerpt: String!
     heroImage: String
@@ -41,7 +39,7 @@ export const typeDefs = /* GraphQL */ `
   type RichTextListItem {
     runs: [TextRun!]!
   }
-    
+
   "An editorial notice. The content lives in the CMS, not in the database."
   type Notice {
     id: ID!

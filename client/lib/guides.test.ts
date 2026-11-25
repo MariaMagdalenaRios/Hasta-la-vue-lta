@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Guide } from '@utpost/shared'
-import { excerpt, filterGuidesByTitle } from './guides'
+import { filterGuidesByTitle } from './guides'
 
 const guide = (id: number, title: string): Guide => ({
   id,
@@ -33,15 +33,5 @@ describe('filterGuidesByTitle', () => {
 
   it('returns an empty list when nothing matches', () => {
     expect(filterGuidesByTitle(guides, 'Everest')).toEqual([])
-  })
-})
-
-describe('excerpt', () => {
-  it('truncates long text to 180 characters', () => {
-    expect(excerpt('x'.repeat(300))).toBe('x'.repeat(180))
-  })
-
-  it('leaves short text unchanged', () => {
-    expect(excerpt('<p>Short text</p>')).toBe('<p>Short text</p>')
   })
 })

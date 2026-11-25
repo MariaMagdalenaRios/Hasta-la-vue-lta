@@ -27,7 +27,7 @@ describe('GuidesView with mocked useQuery', () => {
             region: 'Lappland',
             difficulty: 'medel',
             lengthKm: 12,
-            bodyHtml: '<p>Sveriges tak</p>',
+            excerpt: 'Sveriges tak',
             heroImage: null,
             published: true,
             updatedAt: '2026-01-01T00:00:00.000Z',
