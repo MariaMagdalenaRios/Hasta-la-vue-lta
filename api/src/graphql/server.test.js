@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { yoga } from "./server.js";
+import { pool } from "../db/client.js";
 
 describe("GraphQL API integration", () => {
   it("svarar på en GraphQL-fråga", async () => {
@@ -165,6 +166,41 @@ describe("PostgreSQL enskild guide", () => {
     expect(response.status).toBe(200);
     expect(result.errors).toBeUndefined();
     expect(result.data.guide.id).toBe(selectedGuide.id);
+  });
+});
+
+// #180: a draft guide (published = false) is not for readers. The seed makes every
+// 9th guide a draft, so the database always has some.
+describe("Utkast till guider", () => {
+  const gql = async (query, variables) => {
+    const response = await yoga.fetch("http://localhost/graphql", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query, variables }),
+    });
+    return response.json();
+  };
+  const draftSlugs = async () =>
+    (await pool.query("select slug from guides where published = false")).rows.map((r) => r.slug);
+
+  it("guides listar inte utkast", async () => {
+    const drafts = await draftSlugs();
+    expect(drafts.length).toBeGreaterThan(0);
+
+    const result = await gql("{ guides { slug } }");
+
+    expect(result.errors).toBeUndefined();
+    const slugs = result.data.guides.map((g) => g.slug);
+    for (const slug of drafts) expect(slugs).not.toContain(slug);
+  });
+
+  it("guide(slug) ger null för ett utkast", async () => {
+    const [draft] = await draftSlugs();
+
+    const result = await gql("query($slug: String!) { guide(slug: $slug) { slug } }", { slug: draft });
+
+    expect(result.errors).toBeUndefined();
+    expect(result.data.guide).toBeNull();
   });
 });
 
