@@ -7,16 +7,18 @@ const unauthenticatedError = () =>
 
 export const resolvers = {
   Query: {
+    // Readers only see published guides. A draft (published = false) is not listed and its
+    // slug gives null, so the page says the guide was not found.
     guides: async (_parent, _args, context) => {
       const result = await context.db.query(
-        'SELECT * FROM guides ORDER BY id',
+        'SELECT * FROM guides WHERE published = true ORDER BY id',
       );
       return result.rows;
     },
 
     guide: async (_parent, { slug }, context) => {
       const result = await context.db.query(
-        'SELECT * FROM guides WHERE slug = $1 LIMIT 1',
+        'SELECT * FROM guides WHERE slug = $1 AND published = true LIMIT 1',
         [slug],
       );
       return result.rows[0] ?? null;
