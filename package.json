@@ -22,7 +22,8 @@
     "test": "npm run test --workspace=client",
     "test:api": "npm run test --workspace=api",
     "build": "npm run build --workspace=client",
-    "codegen": "npm run codegen --workspace=client"
+    "codegen": "npm run codegen --workspace=client",
+    "perf": "node scripts/perf.mjs"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
