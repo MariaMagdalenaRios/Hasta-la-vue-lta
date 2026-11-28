@@ -1,0 +1,19 @@
+{
+  "ci": {
+    "collect": {
+      "numberOfRuns": 1,
+      "settings": {
+        "onlyCategories": ["performance"],
+        "chromeFlags": "--headless=new --no-sandbox"
+      }
+     },
+     "assert": {
+      "assertions": {
+        "total-byte-weight": ["error", { "maxNumericValue": 300000 }],
+        "resource-summary:script:size": ["error", { "maxNumericValue": 150000 }],
+        "cumulative-layout-shift": ["error", { "maxNumericValue": 0.1 }],
+        "largest-contentful-paint": ["warn", { "maxNumericValue": 2500 }]
+      }
+    }
+  }
+}

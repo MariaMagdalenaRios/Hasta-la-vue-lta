@@ -5,5 +5,7 @@ uploads
 
 .nvmrc
 
+.lighthouseci
+
 # Local Claude Code worktrees
 .claude/worktrees/
