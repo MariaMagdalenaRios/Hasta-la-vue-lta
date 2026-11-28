@@ -14,7 +14,7 @@
 
 *Raderna är de som står i `perf-fore.json`. Mätt på `/`, `/guider/<första guidens slug>` och `/guides`. `/turer/1` kräver inloggning och skickar till `/login`, så guidelistan mäts i stället. Tiderna är en modell och varierar, vikterna gör det inte.*
 
-**Vad som är LCP-elementet på startsidan:** TODO (DevTools → Performance, mobilläge, Local metrics), och vad som måste ha hänt innan det kan ritas.
+**Vad som är LCP-elementet på startsidan:** rubriken `<h1>Hitta din nästa tur</h1>` (`div#app > div > section.hero > h1`, hämtad ur Lighthouse-rapporten). Inget annat än text, ingen bild. Innan den kan ritas måste `index.html` ha hämtats, JavaScript-bundeln (ca 140 kB) ha hämtats och körts så att Vue monterar appen, och GraphQL-frågan `Home` ha svarat: i `HomeView.vue` visas bara "Laddar…" tills `data` finns, och `<h1>` ligger först i den grenen. Servern skickar en tom `<div id="app">`, så inget av detta kan ske före JavaScriptet.
 
 ## Optimeringarna
 
